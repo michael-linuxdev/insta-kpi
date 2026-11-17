@@ -164,12 +164,13 @@ td.na{color:var(--muted)}
 /* Sheet */
 .backdrop{position:fixed;inset:0;background:rgba(10,5,15,.45);z-index:50;opacity:0;pointer-events:none;transition:opacity .2s}
 .backdrop.open{opacity:1;pointer-events:auto}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--bg);border-radius:22px 22px 0 0;max-height:88vh;overflow:auto;
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;will-change:transform;background:var(--bg);border-radius:22px 22px 0 0;max-height:88vh;overflow:auto;
   padding:8px 16px calc(20px + var(--safe-b));transform:translateY(105%);transition:transform .25s cubic-bezier(.2,.8,.2,1);max-width:720px;margin:0 auto;
   overscroll-behavior:contain}
 .sheet.open{transform:none;visibility:visible}
 .sheet:not(.open){visibility:hidden;transition:transform .25s,visibility 0s .25s}
-.sheet .grip{width:40px;height:5px;border-radius:9px;background:var(--line);margin:4px auto 12px}
+.sheet .grip{width:40px;height:5px;border-radius:9px;background:var(--line);margin:4px auto 12px;position:relative}
+.sheet .grip::after{content:"";position:absolute;left:-60px;right:-60px;top:-14px;bottom:-14px}
 .sheet h2{margin:0 0 4px;font-size:1.12rem}
 .ocr-row{display:grid;grid-template-columns:28px minmax(0,1fr) 110px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .ocr-row:last-child{border-bottom:0}
@@ -190,3 +191,14 @@ td.na{color:var(--muted)}
 .install{display:flex;gap:10px;align-items:center;background:var(--surface);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;box-shadow:var(--shadow);font-size:.84rem}
 .install b{display:block}
 .note{font-size:.76rem;color:var(--muted);margin:16px 4px}
+
+/* Druck: nur den Report ausgeben */
+#print-root{display:none}
+@media print{
+  @page{size:A4;margin:0}
+  html,body{background:#fff!important;padding:0!important}
+  body>*:not(#print-root){display:none!important}
+  #print-root{display:block}
+  #print-root .rp-page{page-break-after:always;break-after:page}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}

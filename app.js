@@ -75,6 +75,46 @@ function closeSheet() {
   document.body.style.overflow = "";
 }
 $("#backdrop").onclick = closeSheet;
+
+/* Menüs nach unten wegwischen: Sheet folgt dem Finger */
+(() => {
+  const sh = $("#sheet"), bd = $("#backdrop");
+  let drag = null;
+  sh.addEventListener("touchstart", e => {
+    if (!sh.classList.contains("open") || e.touches.length > 1) return;
+    const t = e.touches[0], top = sh.getBoundingClientRect().top;
+    const onGrip = t.clientY - top < 44;
+    if (sh.scrollTop > 0 && !onGrip) return;
+    if (!onGrip && e.target.closest("input,textarea,select,.tblwrap,.calc,.thumbs")) return;
+    drag = { y0: t.clientY, t0: performance.now(), dy: 0, active: false, onGrip };
+  }, { passive: true });
+  sh.addEventListener("touchmove", e => {
+    if (!drag) return;
+    const dy = e.touches[0].clientY - drag.y0;
+    if (!drag.active) {
+      if (dy > 8 && (sh.scrollTop <= 0 || drag.onGrip)) { drag.active = true; drag.y0 += 8; sh.style.transition = "none"; bd.style.transition = "none"; }
+      else if (dy < -8 || sh.scrollTop > 0) { drag = null; return; }
+      else return;
+    }
+    e.preventDefault();
+    drag.dy = Math.max(0, e.touches[0].clientY - drag.y0);
+    sh.style.transform = `translateY(${drag.dy}px)`;
+    bd.style.opacity = String(Math.max(0, 1 - drag.dy / (sh.offsetHeight * 0.9)));
+  }, { passive: false });
+  const end = () => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    if (!d.active) return;
+    const v = d.dy / Math.max(1, performance.now() - d.t0); // px pro ms
+    sh.style.transition = ""; bd.style.transition = "";
+    requestAnimationFrame(() => {
+      if (d.dy > sh.offsetHeight * 0.28 || (v > 0.55 && d.dy > 40)) closeSheet();
+      sh.style.transform = ""; bd.style.opacity = "";
+    });
+  };
+  sh.addEventListener("touchend", end);
+  sh.addEventListener("touchcancel", end);
+})();
 async function copyText(txt) {
   try { await navigator.clipboard.writeText(txt); toast("Kopiert"); return true; }
   catch (e) { toast("Kopieren nicht möglich – Text markieren und manuell kopieren"); return false; }
@@ -511,7 +551,8 @@ function periodsAvailable() {
   for (const t in TYPES) CH().hist[t].forEach(e => months.add(e.date.slice(0, 7)));
   return [...months].sort().reverse();
 }
-function entriesIn(t, ym) { return ym === "all" ? sortedHist(t) : sortedHist(t).filter(e => e.date.startsWith(ym)); }
+function entriesIn(t, ym) { if (!TYPES[t]) return []; return ym === "all" ? sortedHist(t) : sortedHist(t).filter(e => e.date.startsWith(ym)); }
+const goalValue = (k, ym) => TYPES[k.t] ? avgKpi(k, entriesIn(k.t, ym)) : currentValue(k)?.v ?? null;
 function avgKpi(k, entries) { return avg(entries.map(e => evalKpi(k, e.d)).filter(v => v != null)); }
 
 function buildReport(period, forWhom, withTips) {
@@ -563,7 +604,7 @@ function buildReport(period, forWhom, withTips) {
   if (problems[0]) L.push(`• Größte Baustelle: ${problems[0].k.n} (${TYPES[problems[0].t].plural}) mit ${fmtKpi(problems[0].k, problems[0].a)}`);
   const gIds = Object.keys(goals).filter(id => KPI_BY_ID[id]);
   if (gIds.length) {
-    const done = gIds.filter(id => { const k = KPI_BY_ID[id], a = avgKpi(k, entriesIn(k.t, ym)); return a != null && goalStatus(k, a, goals[id]).done; }).length;
+    const done = gIds.filter(id => { const k = KPI_BY_ID[id], a = goalValue(k, ym); return a != null && goalStatus(k, a, goals[id]).done; }).length;
     L.push(`• Ziele: ${done} von ${gIds.length} erreicht`);
   }
   L.push("");
@@ -590,9 +631,9 @@ function buildReport(period, forWhom, withTips) {
   if (gIds.length) {
     L.push("ZIELE");
     gIds.forEach(id => {
-      const k = KPI_BY_ID[id], g = goals[id], a = avgKpi(k, entriesIn(k.t, ym));
+      const k = KPI_BY_ID[id], g = goals[id], a = goalValue(k, ym);
       const gs = goalStatus(k, a, g);
-      L.push(`• ${k.n} (${TYPES[k.t].plural}): ${a != null ? fmtKpi(k, a) : "kein Wert"} von ${fmtKpi(k, g.v)}${gs ? (gs.done ? " ✓ erreicht" : ` – ${gs.text}`) : ""}${g.date ? ` (bis ${dDE(g.date)})` : ""}`);
+      L.push(`• ${k.n} (${AREA_LABEL(k.t)}): ${a != null ? fmtKpi(k, a) : "kein Wert"} von ${fmtKpi(k, g.v)}${gs ? (gs.done ? " ✓ erreicht" : ` – ${gs.text}`) : ""}${g.date ? ` (bis ${dDE(g.date)})` : ""}`);
     });
     L.push("");
   }
@@ -611,35 +652,67 @@ function buildReport(period, forWhom, withTips) {
   return L.join("\n");
 }
 
+let reportPdf = null; // { blob, url, name }
 function renderReport(v) {
   const months = periodsAvailable();
-  if (!months.length) {
-    v.innerHTML = `<div class="card empty-state"><div class="big">📝</div><h2>Noch nichts zu berichten</h2><p>Der Report entsteht aus dem Verlauf. Speichere Einträge oder lade Beispieldaten.</p><button class="btn" id="rdemo">Beispieldaten laden</button></div>`;
+  if (!months.length && !latestKonto()) {
+    v.innerHTML = `<div class="card empty-state"><div class="big">📝</div><h2>Noch nichts zu berichten</h2><p>Der Report entsteht aus Bestandsaufnahme und Verlauf. Mach den Schnell-Check oder lade Beispieldaten.</p>
+      <div class="row" style="justify-content:center"><button class="btn primary" id="r0">Schnell-Check</button><button class="btn" id="rdemo">Beispieldaten</button></div></div>`;
+    $("#r0").onclick = () => { go("ueberblick"); openGuide(); };
     $("#rdemo").onclick = () => { loadDemoHist(Object.keys(TYPES)); render(); };
     return;
   }
-  if (S.ui.reportPeriod !== "all" && !months.includes(S.ui.reportPeriod)) S.ui.reportPeriod = months[0];
+  if (S.ui.reportPeriod !== "all" && !months.includes(S.ui.reportPeriod)) S.ui.reportPeriod = months[0] || "all";
   const withTips = S.ui.reportTips !== false;
-  const txt = buildReport(S.ui.reportPeriod, S.ui.reportFor, withTips) || "Für diesen Zeitraum gibt es keine Einträge.";
+  const opts = { period: S.ui.reportPeriod, forWhom: S.ui.reportFor, withTips };
+  const doc = ReportDoc.paginate(opts);
+  const txt = buildReport(S.ui.reportPeriod, S.ui.reportFor, withTips) || snapshotText(S.active);
+  if (reportPdf) { URL.revokeObjectURL(reportPdf.url); reportPdf = null; }
   v.innerHTML = `
-    <section class="card"><h2>Report erstellen</h2>
-      <p class="hint">Fasst den Verlauf von „${esc(channel().name)}“ als Bericht zusammen – mit Vergleich zum Vormonat, Zielen und Empfehlungen. Zum Kopieren für Mail, Teams oder WhatsApp.</p>
+    <section class="card"><h2>Report</h2>
+      <p class="hint">Gestalteter Bericht für „${esc(channel().name)}“ mit Befunden, Diagrammen, Vormonatsvergleich, Zielen und Empfehlungen.</p>
       <div class="grid">
         <label class="field"><span>Zeitraum</span><select id="rper">${months.map(m => `<option value="${m}" ${m === S.ui.reportPeriod ? "selected" : ""}>${monthLabel(m)}</option>`).join("")}<option value="all" ${S.ui.reportPeriod === "all" ? "selected" : ""}>Alle Einträge</option></select></label>
         <label class="field"><span>Für (optional)</span><input type="text" id="rfor" maxlength="60" placeholder="z. B. Kundin, Chef" value="${esc(S.ui.reportFor)}"></label>
       </div>
       <label class="row" style="margin-top:12px;gap:10px;font-size:.9rem;font-weight:600"><input type="checkbox" id="rtips" ${withTips ? "checked" : ""} style="width:20px;height:20px;accent-color:var(--accent)"> Empfehlungen aufnehmen</label>
     </section>
-    <pre class="report" id="rtxt">${esc(txt)}</pre>
-    <div class="row" style="margin-top:12px"><button class="btn primary spacer" id="rcopy">${I.copy} Kopieren</button>${navigator.share ? `<button class="btn spacer" id="rshare">${I.share} Teilen</button>` : ""}</div>
-    <details class="card" style="margin-top:12px"><summary>Was macht einen guten Report aus?</summary>
-      <p>Ein guter Social-Media-Report beantwortet drei Fragen: <b>Was ist passiert?</b> (Zahlen mit Vergleich), <b>Warum?</b> (welche Inhalte haben funktioniert) und <b>Was tun wir jetzt?</b> (Empfehlungen). Reine Zahlenlisten ohne Einordnung helfen Entscheidern wenig.</p>
-      <p>Den generierten Text als Gerüst nutzen und mit eigener Einschätzung ergänzen – z. B. Kontext wie Kampagnen, Feiertage oder Algorithmus-Änderungen.</p></details>`;
+    <div class="row" style="margin-bottom:12px"><button class="btn grad spacer" id="rpdf">${I.doc} PDF erstellen</button><button class="btn" id="rprint">Drucken</button></div>
+    <div id="rpdfout"></div>
+    <div class="label">Vorschau · ${doc.pages.length} ${doc.pages.length === 1 ? "Seite" : "Seiten"}</div>
+    <div id="rprev"></div>
+    <details class="card" style="margin-top:12px"><summary>Als Text (zum Einfügen in Mail oder Chat)</summary>
+      <pre class="report" id="rtxt">${esc(txt)}</pre><button class="btn small" id="rcopy" style="margin-top:8px">${I.copy} Text kopieren</button></details>
+    <details class="card"><summary>Was macht einen guten Report aus?</summary>
+      <p>Ein guter Social-Media-Report beantwortet drei Fragen: <b>Was ist passiert?</b> (Zahlen mit Vergleich), <b>Warum?</b> (welche Inhalte haben funktioniert) und <b>Was tun wir jetzt?</b> (Empfehlungen). Reine Zahlenlisten ohne Einordnung helfen Entscheidern wenig.</p></details>`;
+  // Vorschau skaliert auf Bildschirmbreite
+  const prev = $("#rprev"), w = prev.clientWidth || 358, sc = w / ReportDoc.W;
+  prev.innerHTML = `<style>${doc.css}</style>` + doc.pages.map(p => `<div style="width:${w}px;height:${ReportDoc.H * sc}px;overflow:hidden;border-radius:10px;box-shadow:0 2px 14px rgba(0,0,0,.12);margin-bottom:14px;background:#fff"><div style="transform:scale(${sc});transform-origin:0 0;width:${ReportDoc.W}px">${p}</div></div>`).join("");
   $("#rper").onchange = e => { S.ui.reportPeriod = e.target.value; save(); render(); };
   $("#rfor").onchange = e => { S.ui.reportFor = e.target.value.trim(); save(); render(); };
   $("#rtips").onchange = e => { S.ui.reportTips = e.target.checked; save(); render(); };
   $("#rcopy").onclick = () => copyText(txt);
-  if ($("#rshare")) $("#rshare").onclick = () => navigator.share({ title: `Instagram-Report ${channel().name}`, text: txt }).catch(() => {});
+  $("#rprint").onclick = () => {
+    let el = $("#print-root"); if (!el) { el = document.createElement("div"); el.id = "print-root"; document.body.appendChild(el); }
+    el.innerHTML = `<style>${doc.css}</style>` + doc.pages.join("");
+    try { window.print(); } catch (e) { toast("Drucken wird hier nicht unterstützt – bitte „PDF erstellen“ nutzen"); }
+  };
+  $("#rpdf").onclick = async () => {
+    const btn = $("#rpdf"); btn.disabled = true;
+    try {
+      const blob = await ReportDoc.toPDF(doc, (i, n) => { btn.innerHTML = `PDF wird erstellt … Seite ${i} von ${n}`; });
+      const name = ReportDoc.fileName(doc.meta);
+      reportPdf = { blob, url: URL.createObjectURL(blob), name };
+      const file = new File([blob], name, { type: "application/pdf" });
+      const canShare = navigator.canShare && navigator.canShare({ files: [file] });
+      $("#rpdfout").innerHTML = `<section class="card kpi good"><div class="kpi-name">✓ PDF ist fertig</div><p class="hint" style="margin:4px 0 10px">${esc(name)} · ${fmtNum(blob.size / 1024, 0)} KB</p>
+        <div class="row">${canShare ? `<button class="btn primary spacer" id="rshare">${I.share} Teilen / Sichern</button>` : ""}<a class="btn spacer" href="${reportPdf.url}" target="_blank" rel="noopener" download="${esc(name)}">Öffnen</a></div></section>`;
+      if (canShare) $("#rshare").onclick = () => navigator.share({ files: [file], title: `Instagram-Report ${doc.meta.ch}` }).catch(() => {});
+      btn.innerHTML = `${I.doc} PDF neu erstellen`;
+    } catch (err) {
+      toast(err.message || "PDF konnte nicht erstellt werden"); btn.innerHTML = `${I.doc} PDF erstellen`;
+    } finally { btn.disabled = false; }
+  };
 }
 
 /* ================= Kooperations-Rechner ================= */
@@ -720,7 +793,7 @@ function renderDeals(v) {
 /* ================= Bestandsaufnahme ================= */
 const RECENT = 5; // Basis: die letzten 5 Einträge je Bereich
 const SCORE = { good: 100, ok: 60, bad: 20 };
-const AREA_LABEL = t => ({ konto: "Konto", export: "Zeitraum-Export" }[t] || TYPES[t].plural);
+const AREA_LABEL = t => ({ konto: "Konto", export: "Insights-Export" }[t] || TYPES[t].plural);
 const fmtDeltaPct = v => v == null ? "" : `${v > 0 ? "+" : v < 0 ? "−" : "±"}${fmtNum(Math.abs(v), 1)} %`;
 
 function snapshot(chId) {

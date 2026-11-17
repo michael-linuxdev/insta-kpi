@@ -1,6 +1,6 @@
 /* Offline-Cache: App-Dateien sofort, Texterkennung (CDN) bei erster Nutzung */
-const VERSION = "insta-kpi-v3";
-const SHELL = ["./", "index.html", "style.css", "kpis.js", "ocr.js", "bestand.js", "app.js", "manifest.webmanifest",
+const VERSION = "insta-kpi-v4";
+const SHELL = ["./", "index.html", "style.css", "kpis.js", "ocr.js", "bestand.js", "report.js", "app.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
@@ -22,7 +22,7 @@ self.addEventListener("fetch", e => {
     return;
   }
   // Texterkennung vom CDN: Cache zuerst
-  if (/cdn\.jsdelivr\.net|tessdata/.test(url.host + url.pathname)) {
+  if (/cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|tessdata/.test(url.host + url.pathname)) {
     e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => {
       if (res.ok || res.type === "opaque") { const copy = res.clone(); caches.open(VERSION + "-cdn").then(c => c.put(req, copy)); }
       return res;
