@@ -13,6 +13,13 @@ const I = {
   share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>',
   down: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>',
   pulse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
+  sync: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  up: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>',
+  image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/></svg>',
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>',
+  cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
 };
 
@@ -22,12 +29,12 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 const emptyChannelData = () => ({
   draft: { beitrag: {}, reel: {}, story: {}, profil: {} },
   hist: { beitrag: [], reel: [], story: [], profil: [] },
-  goals: {}, deal: { nPost: 1, nReel: 0, nStory: 3 }, konto: [],
+  goals: {}, deal: { nPost: 1, nReel: 0, nStory: 3 }, konto: [], plan: [], experiments: [], events: [],
 });
 function defaultState() {
   const id = newId();
   return { channels: [{ id, name: "Mein Kanal" }], active: id, data: { [id]: emptyChannelData() },
-    ui: { view: "ueberblick", type: "beitrag", histType: "beitrag", histMode: "tabelle", goalType: "beitrag", reportPeriod: "", reportFor: "", installDismissed: false } };
+    ui: { view: "heute", asub: "ueberblick", type: "beitrag", histType: "beitrag", histMode: "tabelle", goalType: "beitrag", reportPeriod: "", reportFor: "", installDismissed: false } };
 }
 let S;
 try { S = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { S = null; }
@@ -36,7 +43,7 @@ S.ui = Object.assign(defaultState().ui, S.ui || {});
 for (const c of S.channels) {
   const d = S.data[c.id] = Object.assign(emptyChannelData(), S.data[c.id] || {});
   for (const t in TYPES) { d.draft[t] = d.draft[t] || {}; d.hist[t] = Array.isArray(d.hist[t]) ? d.hist[t] : []; }
-  if (!Array.isArray(d.konto)) d.konto = [];
+  for (const k of ["konto", "plan", "experiments", "events"]) if (!Array.isArray(d[k])) d[k] = [];
 }
 if (!S.data[S.active]) S.active = S.channels[0].id;
 
@@ -145,23 +152,29 @@ function goalStatus(k, v, g) {
   const progress = Math.max(0, Math.min(100, k.inv ? (v === 0 ? 100 : g.v / v * 100) : (g.v === 0 ? 100 : v / g.v * 100)));
   const gap = Math.abs(g.v - v);
   const gapTxt = k.unit === "pct" ? `${fmtNum(gap)} PP` : fmtNum(gap);
-  return { done, progress, text: done ? "Ziel erreicht" : `noch ${gapTxt} bis ${fmtKpi(k, g.v)}` };
+  return { done, progress, text: done ? "Ziel erreicht" : `noch ${gapTxt} bis zum Ziel` };
 }
 
 /* ================= Navigation ================= */
 const VIEWS = {
-  ueberblick: { label: "Überblick", icon: I.pulse, render: renderUeberblick },
-  erfassen: { label: "Erfassen", icon: I.edit, render: renderErfassen },
-  verlauf: { label: "Verlauf", icon: I.list, render: renderVerlauf },
-  ziele: { label: "Ziele", icon: I.target, render: renderZiele },
-  report: { label: "Report", icon: I.doc, render: renderReport },
-  deals: { label: "Deals", icon: I.deal, render: renderDeals },
+  heute: { label: "Heute", icon: I.home, render: (v) => renderHeute(v), tab: true },
+  analyse: { label: "Analyse", icon: I.list, render: (v) => renderAnalyse(v), tab: true },
+  planen: { label: "Planen", icon: I.cal, render: (v) => renderPlanen(v), tab: true },
+  berichte: { label: "Berichte", icon: I.doc, render: (v) => renderBerichte(v), tab: true },
+  erfassen: { label: "Von Hand erfassen", parent: "heute", render: renderErfassen },
+  verlauf: { label: "Alle Einträge", parent: "analyse", render: renderVerlauf },
+  ziele: { label: "Ziele", parent: "berichte", render: renderZiele },
+  report: { label: "Report", parent: "berichte", render: renderReport },
+  deals: { label: "Kooperation", parent: "berichte", render: renderDeals },
+  mediakit: { label: "Media-Kit", parent: "berichte", render: (v) => renderMediaKit(v) },
 };
-$("#tabbar").innerHTML = Object.entries(VIEWS).map(([k, v]) => `<button data-view="${k}">${v.icon}<span>${v.label}</span></button>`).join("");
+$("#tabbar").innerHTML = Object.entries(VIEWS).filter(([, v]) => v.tab).map(([k, v]) => `<button data-view="${k}">${v.icon}<span>${v.label}</span></button>`).join("");
 $("#tabbar").onclick = e => { const b = e.target.closest("[data-view]"); if (b) go(b.dataset.view); };
 function go(view) {
-  if (!VIEWS[view]) view = "ueberblick";
+  if (view === "ueberblick") { S.ui.asub = "ueberblick"; view = "analyse"; }
+  if (!VIEWS[view]) view = "heute";
   if (S.ui.view !== view) editing = editing && view === "erfassen" ? editing : null;
+  if (VIEWS[view].tab) S.ui.weekOff = view === "planen" && S.ui.view !== "planen" ? 0 : S.ui.weekOff;
   S.ui.view = view; save();
   if (location.hash.slice(1) !== view) history.replaceState(null, "", "#" + view);
   render(); window.scrollTo(0, 0);
@@ -169,14 +182,28 @@ function go(view) {
 window.addEventListener("hashchange", () => go(location.hash.slice(1)));
 
 function render() {
-  document.querySelectorAll("#tabbar button").forEach(b => b.setAttribute("aria-current", b.dataset.view === S.ui.view ? "page" : "false"));
-  $("#title").innerHTML = `<span id="chbtn" style="cursor:pointer">${esc(channel().name)} <span style="display:inline-block;vertical-align:middle;color:var(--muted)">${I.down}</span></span><span class="sub">Insta-KPI-Trainer · ${VIEWS[S.ui.view].label}</span>`;
-  $("#chbtn").onclick = openChannels;
-  $("#appbar-actions").innerHTML = S.ui.view === "erfassen" ? `<button class="iconbtn grad" id="ocrbtn" aria-label="Screenshot einlesen">${I.cam}</button>` : "";
-  if ($("#ocrbtn")) $("#ocrbtn").onclick = startOcr;
+  const V = VIEWS[S.ui.view], tab = V.tab ? S.ui.view : V.parent;
+  document.querySelectorAll("#tabbar button").forEach(b => b.setAttribute("aria-current", b.dataset.view === tab ? "page" : "false"));
+  const c = channel();
+  if (V.tab) {
+    const api = c.api, ks = latestKonto();
+    const status = api?.lastSync ? `Aktualisiert ${relTime(api.lastSync)}` : ks ? `Daten vom ${dDE(ks.date)}` : (roleOf(c)?.short || "Insta-KPI-Trainer");
+    $("#title").innerHTML = `<span id="chbtn" style="cursor:pointer">${esc(c.name)} <span style="display:inline-block;vertical-align:middle;color:var(--muted)">${I.down}</span></span><span class="sub">${esc(V.label)} · ${esc(status)}</span>`;
+    $("#chbtn").onclick = openChannels;
+    $("#appbar-actions").innerHTML = `<button class="iconbtn dark" id="datbtn" aria-label="Daten holen">${I.plus}</button>`;
+    $("#datbtn").onclick = openDaten;
+    document.querySelector(".appbar .logo").style.display = "";
+  } else {
+    $("#title").innerHTML = `<button class="backbtn" id="backbtn" aria-label="Zurück">${I.back}</button><span>${esc(V.label)}<span class="sub">${esc(c.name)}</span></span>`;
+    $("#backbtn").onclick = () => go(V.parent);
+    $("#appbar-actions").innerHTML = S.ui.view === "erfassen" ? `<button class="iconbtn grad" id="ocrbtn" aria-label="Screenshot einlesen">${I.cam}</button>` : "";
+    if ($("#ocrbtn")) $("#ocrbtn").onclick = startOcr;
+    document.querySelector(".appbar .logo").style.display = "none";
+  }
   const v = $("#view"); v.classList.remove("view"); void v.offsetWidth; v.classList.add("view");
-  VIEWS[S.ui.view].render(v);
+  V.render(v);
 }
+const relTime = t => { const m = Math.round((Date.now() - t) / 6e4); return m < 2 ? "gerade eben" : m < 60 ? `vor ${m} Min.` : m < 1440 ? `vor ${Math.round(m / 60)} Std.` : `am ${new Date(t).toLocaleDateString("de-DE")}`; };
 
 /* ================= Kanäle ================= */
 function openChannels() {
@@ -187,6 +214,7 @@ function openChannels() {
         <span><b>${esc(c.name)}</b><span class="meta" style="display:block">${Object.values(S.data[c.id].hist).reduce((s, a) => s + a.length, 0)} Einträge</span></span></label>
         <div class="row"><button class="btn small" data-ren="${c.id}">Umbenennen</button>${S.channels.length > 1 ? `<button class="btn small" data-delch="${c.id}">Löschen</button>` : ""}</div></li>`).join("")}
     </ul></div>
+    <button class="btn block" id="chset" style="margin-bottom:12px">Einstellungen für „${esc(channel().name)}“ (Rolle, Branche, Bundesland)</button>
     <div class="card"><label class="field"><span>Neuer Kanal</span><small>z. B. @accountname oder Kundenname</small><input type="text" id="newch" maxlength="40" placeholder="@kanal"></label>
     <button class="btn primary block" id="addch" style="margin-top:10px">Kanal hinzufügen</button></div>`, b => {
     b.querySelectorAll("input[name=ch]").forEach(r => r.onchange = () => { S.active = r.value; editing = null; save(); closeSheet(); render(); toast(`Kanal: ${channel().name}`); });
@@ -204,10 +232,11 @@ function openChannels() {
       if (S.active === id) S.active = S.channels[0].id;
       save(); render(); draw();
     }));
+    b.querySelector("#chset").onclick = openChannelSettings;
     b.querySelector("#addch").onclick = () => {
       const name = b.querySelector("#newch").value.trim(); if (!name) return toast("Bitte Namen eingeben");
       const id = newId(); S.channels.push({ id, name }); S.data[id] = emptyChannelData(); S.active = id; editing = null;
-      save(); closeSheet(); render(); toast(`Kanal „${name}“ angelegt`);
+      save(); closeSheet(); go("heute"); toast(`Kanal „${name}“ angelegt – jetzt Rolle wählen`);
     };
   });
   draw();
@@ -221,10 +250,11 @@ function kpiCard(k, d, opts = {}) {
     <p class="bench">Noch nicht genug Werte eingetragen.</p>${expl}</div>`;
   const cls = rateKpi(k, v), val = fmtKpi(k, v);
   const g = CH().goals[k.id], gs = goalStatus(k, v, g);
-  const tips = k.tips && (cls === "bad" || cls === "ok")
+  const tl = roleTips(k, channel());
+  const tips = tl && (cls === "bad" || cls === "ok")
     ? (cls === "bad"
-      ? `<p class="tips-title">💡 So verbesserst du das</p><ul class="tips">${k.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul>`
-      : `<details><summary>💡 Hebel für mehr</summary><ul class="tips">${k.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></details>`) : "";
+      ? `<p class="tips-title">💡 So verbesserst du das</p><ul class="tips">${tl.map(t => `<li>${esc(t)}</li>`).join("")}</ul>`
+      : `<details><summary>💡 Hebel für mehr</summary><ul class="tips">${tl.map(t => `<li>${esc(t)}</li>`).join("")}</ul></details>`) : "";
   return `<div class="card kpi ${cls}"><div class="kpi-top"><span class="kpi-name">${esc(k.n)}</span><span class="kpi-val">${esc(val)}</span></div>
     <div class="calc">${esc(k.c(d))}${["pct", "n"].includes(k.unit) ? " = " + esc(val) : ""}</div>
     <div class="bench">${cls ? `<span class="badge">${RATE_LABEL[cls]}</span>` : ""}${esc(k.b)}</div>
@@ -385,11 +415,16 @@ function loadDemoHist(types) {
   save();
 }
 
+function catSelect(e, ht) {
+  const c = channel(), r = roleOf(c) || ROLES.creator;
+  const auto = Insights.catName(Insights.categorize({ e: { ...e, cat: null }, text: `${e.caption || ""} ${e.name || ""}` }, c), c);
+  return `<select class="catsel" data-cat="${e.id}" aria-label="Kategorie"><option value="auto" ${!e.cat ? "selected" : ""}>Auto: ${esc(auto)}</option>${[...r.categories.map(x => [x[0], x[1]]), ["other", r.other]].map(([k, l]) => `<option value="${k}" ${e.cat === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+}
 function renderHistTable(el, ht) {
   const T = TYPES[ht], entries = sortedHist(ht);
   if (!entries.length) {
     el.innerHTML = `<div class="card empty-state"><div class="big">📊</div><h2>Noch keine ${esc(T.plural)}</h2>
-      <p>Unter „Erfassen“ Werte eintragen und speichern. Ab zwei Einträgen erscheint der Vergleich.</p>
+      <p>Über ＋ → „Von Hand eintragen“ Werte erfassen und speichern. Ab zwei Einträgen erscheint der Vergleich.</p>
       <button class="btn" id="hdemo">Beispielverlauf laden</button></div>`;
     $("#hdemo").onclick = () => { loadDemoHist([ht]); render(); };
     return;
@@ -425,10 +460,11 @@ function renderHistTable(el, ht) {
         ${cols > 1 ? `<td class="avg">${esc(fmtKpi(k, avg(val)))}</td><td><span class="spark">${vals.map(v => `<i style="height:${v == null ? 0 : Math.max(2, Math.abs(v) / mx * 22)}px"></i>`).join("")}</span></td>` : ""}</tr>`;
     }).join("")}</tbody></table></div>
     <div class="label">Einträge</div>
-    <section class="card" style="padding:4px 16px"><ul class="entries">${entries.slice().reverse().map(e => `<li><div><b>${esc(e.name)}</b><div class="meta">${dDE(e.date)}${e.d.format ? " · " + esc(e.d.format) : ""}</div></div>
+    <section class="card" style="padding:4px 16px"><ul class="entries">${entries.slice().reverse().map(e => `<li><div style="min-width:0"><b>${esc(e.name)}</b><div class="meta">${dDE(e.date)}${e.d.format ? " · " + esc(e.d.format) : ""}</div>${ht === "beitrag" || ht === "reel" ? catSelect(e, ht) : ""}</div>
       <div class="row"><button class="btn small" data-load="${e.id}">Bearbeiten</button><button class="btn small" data-del="${e.id}">Löschen</button></div></li>`).join("")}</ul></section>
     <button class="btn small" id="hdemo">Beispielverlauf ergänzen</button>`;
   $("#hdemo").onclick = () => { loadDemoHist([ht]); render(); };
+  el.querySelectorAll("[data-cat]").forEach(s => s.onchange = () => { const e = CH().hist[ht].find(x => x.id === s.dataset.cat); if (s.value === "auto") delete e.cat; else e.cat = s.value; save(); toast("Kategorie gespeichert"); });
   el.querySelectorAll("[data-del]").forEach(b => armed(b, "Wirklich?", () => { CH().hist[ht] = CH().hist[ht].filter(e => e.id !== b.dataset.del); save(); render(); }));
   el.querySelectorAll("[data-load]").forEach(b => b.onclick = () => {
     const e = CH().hist[ht].find(x => x.id === b.dataset.load); if (!e) return;
@@ -826,7 +862,7 @@ function snapshot(chId) {
   for (const a of Object.values(out.areas)) { const rs = a.kpis.filter(x => x.r).map(x => SCORE[x.r]); a.score = rs.length ? Math.round(avg(rs)) : null; }
   out.score = scores.length ? Math.round(avg(scores)) : null;
   if (!ks) out.gaps.unshift("Noch keine Konto-Bestandsaufnahme – Schnell-Check mit 4 Screenshots machen.");
-  else if (!data.hist.beitrag.length) out.gaps.push("Einzelne Beiträge sind noch nicht ausgewertet – optional über die vollständige Bestandsaufnahme (Inhalte-Listen) oder unter „Erfassen“.");
+  else if (!data.hist.beitrag.length) out.gaps.push("Einzelne Beiträge sind noch nicht ausgewertet – optional über die vollständige Bestandsaufnahme (Inhalte-Listen) oder über ＋ → „Von Hand eintragen“.");
   if (!Object.keys(data.goals).some(id => KPI_BY_ID[id]) && out.total) out.gaps.push("Noch keine Ziele gesetzt.");
   if (out.last) { const age = Math.floor((new Date() - new Date(out.last)) / 864e5); if (age > 30) out.gaps.push(`Letzte Daten sind ${age} Tage alt – aktualisieren.`); }
   const prof = sorted("profil"), post = sorted("beitrag");
@@ -961,7 +997,7 @@ function renderUeberblick(v) {
       ${tileHTML("Geteilt", ex.shares != null ? fmtNum(ex.shares, 0) : null)}${tileHTML("Gespeichert", ex.saves != null ? fmtNum(ex.saves, 0) : null)}
       ${tileHTML("Betrachter", ex.reached != null ? fmtNum(ex.reached, 0) : null)}${tileHTML("Aufrufe von Reels", ex.reelViews != null ? fmtNum(ex.reelViews, 0) : null)}</div></section>` : ""}
     ${sn.strengths.length ? `<div class="label">Stärken</div><section class="card kpi good">${sn.strengths.map(s => `<div class="row" style="padding:5px 0"><span class="spacer">${esc(s.k.n)} <span class="meta">${AREA_LABEL(s.t)}</span></span><b style="color:var(--good);white-space:nowrap">${esc(fmtKpi(s.k, s.a))}</b></div>`).join("")}</section>` : ""}
-    ${sn.issues.length ? `<div class="label">Baustellen</div>${sn.issues.map(s => `<section class="card kpi bad"><div class="kpi-top"><span class="kpi-name">${esc(s.k.n)} <span class="meta">${AREA_LABEL(s.t)}</span></span><span class="kpi-val" style="font-size:1.1rem;color:var(--bad)">${esc(fmtKpi(s.k, s.a))}</span></div><p class="bench" style="margin:2px 0 0">${esc(s.k.b)}</p>${s.k.tips ? `<ul class="tips">${s.k.tips.slice(0, 2).map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}</section>`).join("")}` : ""}
+    ${sn.issues.length ? `<div class="label">Baustellen</div>${sn.issues.map(s => `<section class="card kpi bad"><div class="kpi-top"><span class="kpi-name">${esc(s.k.n)} <span class="meta">${AREA_LABEL(s.t)}</span></span><span class="kpi-val" style="font-size:1.1rem;color:var(--bad)">${esc(fmtKpi(s.k, s.a))}</span></div><p class="bench" style="margin:2px 0 0">${esc(s.k.b)}</p>${roleTips(s.k, channel()) ? `<ul class="tips">${roleTips(s.k, channel()).slice(0, 2).map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}</section>`).join("")}` : ""}
     ${ks ? `<details class="card"><summary>Alle Konto-Kennzahlen mit Rechenweg</summary>${[...kpisOf("konto").map(k => [k, ks.d]), ...(ex ? kpisOf("export").map(k => [k, ex]) : [])].map(([k, src]) => evalKpi(k, src) == null ? "" : kpiCard(k, src)).join("")}</details>` : ""}
     ${sn.gaps.length ? `<div class="label">Datenlücken</div><section class="card"><ul class="insights" style="margin:0">${sn.gaps.map(g => `<li>${esc(g)}</li>`).join("")}</ul></section>` : ""}
     ${multi ? channelCompare() : ""}
@@ -1053,7 +1089,7 @@ function showBestandResult(r) {
     if (b.querySelector("#bmore2")) b.querySelector("#bmore2").onclick = startBestandOcr;
     b.querySelector("#bno").onclick = closeSheet;
     b.querySelector("#bok").onclick = () => {
-      const d = { days: acc.days }, ex = r.ex ? { ...r.ex } : null;
+      const d = { days: acc.days, ...(acc.views30 != null ? { views30: acc.views30 } : {}) }, ex = r.ex ? { ...r.ex } : null;
       b.querySelectorAll("[data-ak]").forEach(i => { const v = parseFloat(i.value.replace(",", ".")); if (isFinite(v)) d[i.dataset.ak] = v; });
       if (ex) b.querySelectorAll("[data-ek]").forEach(i => { const v = parseFloat(i.value.replace(",", ".")); if (isFinite(v)) ex[i.dataset.ek] = v; else delete ex[i.dataset.ek]; });
       const date = today(), list = CH().konto;
@@ -1123,20 +1159,25 @@ function openApi() {
   });
 }
 
-async function runApiSync() {
+let syncing = false;
+async function runApiSync(quiet = false) {
   const c = channel();
   if (!c.api) return openApi();
-  openSheet(`<h2>Daten werden abgerufen</h2><div class="spinner"></div><p class="hint" style="text-align:center" id="apistat">Verbindung wird aufgebaut …</p>`);
+  if (syncing) return; syncing = true;
+  if (!quiet) openSheet(`<h2>Daten werden abgerufen</h2><div class="spinner"></div><p class="hint" style="text-align:center" id="apistat">Verbindung wird aufgebaut …</p>`);
+  else toast("Daten werden aktualisiert …");
   const stat = t => { const el = $("#apistat"); if (el) el.textContent = t + " …"; };
   try {
     c.api = await IGApi.refreshIfDue(c.api); save();
     const r = await IGApi.sync(c.api, { days: c.api.days || 30 }, stat);
     applyApiResult(r);
-    c.api.lastSync = Date.now(); c.api.username = r.me.username; save();
-    closeSheet(); go("ueberblick");
+    c.api.lastSync = Date.now(); c.api.username = r.me.username; save(); syncing = false;
+    if (!quiet) { closeSheet(); go("heute"); } else render();
     const nP = r.items.filter(x => !x.isReel).length, nR = r.items.filter(x => x.isReel).length;
     toast(`Aktualisiert · ${nP} Beiträge, ${nR} Reels`);
   } catch (e) {
+    syncing = false;
+    if (quiet) return toast(IGApi.explain(e));
     openSheet(`<h2>Abruf fehlgeschlagen</h2><p class="hint">${esc(IGApi.explain(e))}</p>
       <div class="row"><button class="btn primary spacer" id="aretry">Erneut versuchen</button><button class="btn spacer" id="anew">Neuen Schlüssel eingeben</button></div>`, b => {
       b.querySelector("#aretry").onclick = runApiSync;
@@ -1149,7 +1190,8 @@ function applyApiResult(r) {
   const date = today(), list = CH().konto, prev = list.find(x => x.date === date);
   const d = Object.fromEntries(Object.entries(r.account).filter(([, v]) => v != null));
   const snap = { id: prev?.id || newId(), date, src: "api", d: { ...(prev?.d || {}), ...d }, delta: { ...(prev?.delta || {}), ...Object.fromEntries(Object.entries(r.delta).filter(([, v]) => v != null)) },
-    age: Object.keys(r.age).length ? r.age : prev?.age || {}, cities: Object.keys(r.cities).length ? r.cities : prev?.cities || {}, bioLink: r.bioLink || prev?.bioLink || null, ex: r.ex };
+    age: Object.keys(r.age).length ? r.age : prev?.age || {}, cities: Object.keys(r.cities).length ? r.cities : prev?.cities || {}, bioLink: r.bioLink || prev?.bioLink || null, ex: r.ex,
+    engaged: r.engaged?.female != null ? r.engaged : prev?.engaged || null, online: r.online || prev?.online || null };
   if (prev) list[list.indexOf(prev)] = snap; else list.push(snap);
   const clean = s => (s || "").replace(/\s+/g, " ").replace(/[#@][\w.]+/g, m => m).trim();
   for (const { m, isReel, v } of r.items) {
@@ -1160,7 +1202,7 @@ function applyApiResult(r) {
       : { format: m.media_type === "CAROUSEL_ALBUM" ? "Karussell" : "Einzelbild", reach: v.reach, views: v.views, likes: v.likes ?? m.like_count, comments: v.comments ?? m.comments_count, saves: v.saved, shares: v.shares, follows: v.follows, followers: r.account.followers };
     Object.keys(dd).forEach(k => dd[k] == null && delete dd[k]);
     const hist = CH().hist[t], ex = hist.find(e => e.igId === m.id);
-    if (ex) { Object.assign(ex.d, dd); ex.date = dt; } else hist.push({ id: newId(), igId: m.id, name, date: dt, d: dd, src: "api" });
+    if (ex) { Object.assign(ex.d, dd); ex.date = dt; ex.caption = m.caption || ""; } else hist.push({ id: newId(), igId: m.id, name, caption: m.caption || "", date: dt, d: dd, src: "api" });
   }
   save();
 }
@@ -1176,3 +1218,5 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
 }
 
 go(location.hash.slice(1) || S.ui.view);
+// Abruf beim Öffnen, wenn verbunden und älter als 6 Stunden
+setTimeout(() => { const c = channel(); if (c.api && Date.now() - (c.api.lastSync || 0) > 6 * 36e5 && navigator.onLine !== false) runApiSync(true); }, 800);

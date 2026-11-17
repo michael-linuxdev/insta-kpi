@@ -182,7 +182,8 @@ const ReportDoc = (() => {
     return { B, meta: { ch: ch.name, period: isAll ? "Alle Einträge" : monthLabel(ym), prev: prev ? monthLabel(prev) : null, forWhom } };
   }
   function rec(r, i) {
-    return `<div class="rp-rec"><span class="no">${i + 1}</span><div><b>${e(r.k.n)} · ${e(fmtKpi(r.k, r.a))}</b>${e(r.k.tips[0])}${r.k.tips[1] ? ` ${e(r.k.tips[1])}` : ""}</div></div>`;
+    const t = roleTips(r.k, channel()) || r.k.tips;
+    return `<div class="rp-rec"><span class="no">${i + 1}</span><div><b>${e(r.k.n)} · ${e(fmtKpi(r.k, r.a))}</b>${e(t[0])}${t[1] ? ` ${e(t[1])}` : ""}</div></div>`;
   }
 
   function cover(meta) {
@@ -194,15 +195,16 @@ const ReportDoc = (() => {
   const foot = (meta, i, n) => `<div class="rp-foot"><span>Insta-KPI-Trainer · insta-kpi.micana.de</span><span>Seite ${i} von ${n}</span></div>`;
 
   /* Blöcke messen und auf Seiten verteilen */
-  function paginate(opts) {
-    const { B, meta } = blocks(opts);
+  function paginate(opts) { const { B, meta } = blocks(opts); return layoutBlocks(B, meta, cover(meta)); }
+  /* Beliebige Blöcke auf A4-Seiten verteilen (auch für das Media-Kit) */
+  function layoutBlocks(B, meta, coverHtml) {
     const host = document.createElement("div");
     host.style.cssText = `position:fixed;left:-10000px;top:0;width:${W}px;visibility:hidden`;
     host.innerHTML = `<style>${css}</style><div class="rp-page"><div class="rp-body" id="rp-m"></div></div>`;
     document.body.appendChild(host);
     const m = host.querySelector("#rp-m");
     const avail = H - PAD - FOOT - 14 - PAD;
-    m.innerHTML = cover(meta); const coverH = m.firstElementChild.getBoundingClientRect().height + 22 - PAD;
+    m.innerHTML = coverHtml; const coverH = m.firstElementChild.getBoundingClientRect().height + 22 - PAD;
     m.innerHTML = mini(meta); const miniH = m.firstElementChild.getBoundingClientRect().height + 18;
     const pages = []; let cur = [], used = coverH;
     for (const b of B) {
@@ -215,7 +217,7 @@ const ReportDoc = (() => {
     if (cur.length) pages.push(cur);
     host.remove();
     const n = pages.length;
-    const html = pages.map((p, i) => `<div class="rp-page"><div class="rp-body">${i === 0 ? cover(meta) : mini(meta)}${p.join("")}</div>${foot(meta, i + 1, n)}</div>`);
+    const html = pages.map((p, i) => `<div class="rp-page"><div class="rp-body">${i === 0 ? coverHtml : mini(meta)}${p.join("")}</div>${foot(meta, i + 1, n)}</div>`);
     return { pages: html, meta, css };
   }
 
@@ -247,5 +249,5 @@ const ReportDoc = (() => {
     return pdf.output("blob");
   }
   const fileName = meta => `Instagram-Report_${meta.ch.replace(/[^\wäöüÄÖÜß-]+/g, "_")}_${meta.period.replace(/\s+/g, "_")}.pdf`;
-  return { paginate, toPDF, fileName, css, W, H };
+  return { paginate, layoutBlocks, toPDF, fileName, css, W, H, GRAD, C };
 })();

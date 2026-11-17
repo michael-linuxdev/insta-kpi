@@ -115,6 +115,36 @@ const IGApi = (() => {
       } catch (e) { if (e.code === 190) throw e; }
     }
 
+    onProgress("Interagierende Zielgruppe laden");
+    const engaged = { female: null, male: null, age: {} };
+    for (const tf of ["this_month", "last_90_days", "last_30_days"]) {
+      try {
+        const base = { period: "lifetime", metric_type: "total_value", timeframe: tf };
+        const g = bd(await metrics(`${id}/insights`, ["engaged_audience_demographics"], { ...base, breakdown: "gender" }, token), "engaged_audience_demographics");
+        if (!Object.keys(g).length) continue;
+        const tot = Object.values(g).reduce((s, v) => s + v, 0) || 1;
+        engaged.female = Math.round((g.F || 0) / tot * 1000) / 10; engaged.male = Math.round((g.M || 0) / tot * 1000) / 10;
+        const a = bd(await metrics(`${id}/insights`, ["engaged_audience_demographics"], { ...base, breakdown: "age" }, token), "engaged_audience_demographics");
+        const at = Object.values(a).reduce((s, v) => s + v, 0) || 1;
+        for (const [k, v] of Object.entries(a)) engaged.age[k] = Math.round(v / at * 1000) / 10;
+        break;
+      } catch (e) { if (e.code === 190) throw e; }
+    }
+    onProgress("Online-Zeiten der Follower laden");
+    // online_followers: je Tag ein Objekt Stunde → Anzahl; daraus Raster Wochentag × Stunde (Mo = 0)
+    let online = null;
+    try {
+      const r = await get(`${id}/insights`, { metric: "online_followers", period: "lifetime", since: now - 29 * 86400, until: now }, token);
+      const vals = r.data?.[0]?.values || [];
+      const sum = Array.from({ length: 7 }, () => Array(24).fill(0)), cnt = Array(7).fill(0);
+      for (const v of vals) {
+        if (!v.value || typeof v.value !== "object" || !Object.keys(v.value).length) continue;
+        const wd = (new Date(v.end_time).getDay() + 6) % 7; cnt[wd]++;
+        for (const [h, n] of Object.entries(v.value)) sum[wd][+h] += n;
+      }
+      if (cnt.some(Boolean)) online = sum.map((row, i) => row.map(n => cnt[i] ? Math.round(n / cnt[i]) : 0));
+    } catch (e) { if (e.code === 190) throw e; }
+
     onProgress("Beiträge und Reels laden");
     let media = [], next = null, page = 0;
     const cutoff = Date.now() - 365 * 864e5;
@@ -150,7 +180,7 @@ const IGApi = (() => {
       },
       delta: prev ? { views: pct(cur.views, prev.views), reached: pct(cur.reached, prev.reached), viewsNF: pct(cur.viewsNF, prev.viewsNF), followers: net != null && me.followers_count - net > 0 ? Math.round(net / (me.followers_count - net) * 1000) / 10 : null } : {},
       ex: { days, followers: me.followers_count, reached: cur.reached, reelViews: cur.vReels, likes: cur.likes, comments: cur.comments, reposts: cur.reposts, shares: cur.shares, saves: cur.saves, reels: reelsInWindow, range: `letzte ${days} Tage (API)` },
-      age: demo.age, cities: demo.cities, bioLink: me.website || null,
+      age: demo.age, cities: demo.cities, bioLink: me.website || null, engaged, online,
       items,
     };
   }

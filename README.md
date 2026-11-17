@@ -5,15 +5,14 @@ Lern-App für angehende Social Media Manager: Zahlen aus Instagram Insights eint
 **Live:** https://insta-kpi.micana.de
 
 ## Funktionen
-- **Bestandsaufnahme per Screenshots:** Assistent mit Anleitung (Profil, Dashboard „Leistung“, „Zielgruppe“, „Inhalte“ je Sortierung, Insights-Export). Die App erkennt jede Seite selbst, prüft auf Vollständigkeit und übersetzt die Zahlen in Befunde
-- **Instagram-API (optional):** Für eigene oder verwaltete Konten per Zugangsschlüssel aus dem Meta-App-Dashboard (Instagram Login, Standard Access, keine App-Prüfung nötig). Holt Konto-Kennzahlen mit Vorzeitraum-Vergleich, Zielgruppe sowie Beiträge und Reels mit Insights. Profilaufrufe und Bio-Link-Klicks liefert die API nicht
-- **Überblick:** Score je Bereich, Befunde, Konto-Kennzahlen, Content-Mix, Zielgruppe, Stärken, Baustellen, Datenlücken und Kanalvergleich
-- **Erfassen:** Beitrag, Reel, Story und Profil; über 25 Kennzahlen mit Rechenweg, Richtwert, Erklärung und Handlungsempfehlungen
-- **Screenshot einlesen:** Texterkennung (Tesseract.js) direkt im Browser, Deutsch und Englisch, Hell- und Dunkelmodus; Werte werden vor der Übernahme geprüft
-- **Verlauf:** Vergleichstabelle mit Bestwerten, Durchschnitt und Trend sowie ein Format-Vergleich (Einzelbild, Karussell, Reel, Story)
-- **Ziele:** SMART-Ziele je Kennzahl mit Fortschritt und Frist
-- **Report:** Monatsbericht mit Vormonatsvergleich, Zielen und Empfehlungen zum Kopieren oder Teilen
-- **Deals:** Kooperations-Rechner (TKP-Faustregel, Engagement-Faktor, Aufschläge) und Angebotsprüfung
+Vier Bereiche, Daten holen immer über ＋ oben rechts:
+
+- **Heute:** Score, drei Kernzahlen (inkl. 30-Tage-Trend), Aufgaben aus Redaktionsplan, Experimenten und Baustellen, Hinweis auf gut laufende Beiträge, nächster Anlass
+- **Analyse:** Überblick (Befunde, Stärken, Baustellen, Kanalvergleich) · Inhalte (Kategorien je Rolle, Partner-Ranking, Posting-Rhythmus, Vergleich zum eigenen Schnitt) · Zielgruppe (Follower vs. Interagierende, Alter, Städte, beste Posting-Zeiten) · Wachstum (Follower, Prognose, Reichweite)
+- **Planen:** Redaktionsplan mit Wochenziel je Rolle, Anlässe-Kalender (Feiertage nach Bundesland, Branchenanlässe, eigene Termine), Experimente mit Ausgangswert und Auswertung
+- **Berichte:** Ziele, PDF-Report, je Rolle Media-Kit und Kooperations-Rechner (Creator), Werbewert (Unternehmen) oder Reichweite in der Bevölkerung (Verwaltung)
+- **Daten holen:** Instagram-API (Abruf beim Öffnen alle 6 Std.), Screenshots (Schnell-Check oder vollständig), Handeingabe mit Rechenweg und Erklärungen
+- **Rollen:** Creator/Model, Unternehmen (7 Branchen), Öffentliche Verwaltung – mit eigenen Kategorien, Wochenzielen, Tipps, Experiment-Vorlagen, Anlässen und Berichts-Bausteinen
 - **Mehrere Kanäle**, Sicherung/Import per Kopieren und Einfügen
 
 ## Technik
@@ -32,6 +31,9 @@ Lern-App für angehende Social Media Manager: Zahlen aus Instagram Insights eint
 | `bestand.js` | Parser für Dashboard-, Zielgruppen-, Profil-, Inhalte- und Export-Screenshots (positionsbasiert) |
 | `api.js` | Abruf über graph.instagram.com, Token-Verlängerung |
 | `report.js` | Gestalteter A4-Report und PDF-Erzeugung |
+| `roles.js` | Rollen, Branchen, Vorlagen, Anlässe-Kalender |
+| `insights.js` | Kategorien, Partner, Rhythmus, Trend, Prognose |
+| `views.js` | Heute, Analyse, Planen, Berichte, Media-Kit, Daten holen |
 | `app.js` | Ansichten, Kanäle, Verlauf, Ziele, Report, Deals, Bestandsaufnahme |
 | `sw.js` | Offline-Cache |
 
