@@ -1,6 +1,6 @@
 /* Offline-Cache: App-Dateien sofort, Texterkennung (CDN) bei erster Nutzung */
-const VERSION = "insta-kpi-v4";
-const SHELL = ["./", "index.html", "style.css", "kpis.js", "ocr.js", "bestand.js", "report.js", "app.js", "manifest.webmanifest",
+const VERSION = "insta-kpi-v5";
+const SHELL = ["./", "index.html", "style.css", "kpis.js", "ocr.js", "bestand.js", "report.js", "api.js", "app.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {

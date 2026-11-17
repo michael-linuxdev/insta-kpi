@@ -485,7 +485,7 @@ function backupCard() {
     <textarea id="bjson" placeholder="Gesicherte Daten hier einfügen …"></textarea></details>`;
 }
 function bindBackup() {
-  $("#bexp").onclick = () => { const txt = JSON.stringify({ app: "insta-kpi", v: 1, channels: S.channels, data: S.data }); $("#bjson").value = txt; copyText(txt); };
+  $("#bexp").onclick = () => { const txt = JSON.stringify({ app: "insta-kpi", v: 1, channels: S.channels.map(({ api, ...c }) => c), data: S.data }); $("#bjson").value = txt; copyText(txt); };
   $("#bimp").onclick = () => {
     let o; try { o = JSON.parse($("#bjson").value); } catch (e) { return toast("Das sind keine gültigen Daten"); }
     if (!o || !Array.isArray(o.channels) || !o.data) return toast("Das sind keine gültigen Daten");
@@ -909,8 +909,10 @@ function renderUeberblick(v) {
     v.innerHTML = `<div class="card empty-state"><div class="big">🔎</div><h2>Bestandsaufnahme für „${esc(channel().name)}“</h2>
       <p>Screenshots aus dem Instagram-Dashboard einlesen – die App ermittelt Kennzahlen, Zielgruppe, Stärken und Baustellen des Kanals.</p>
       <button class="btn grad block" id="u0">${I.cam} Schnell-Check starten · 4 Screenshots</button>
+      <button class="btn block" id="uapi0" style="margin-top:8px">Per Instagram-API verbinden</button>
       <div class="row" style="justify-content:center;margin-top:10px"><button class="btn ghost" id="u1">Zahlen von Hand erfassen</button><button class="btn ghost" id="u2">Beispieldaten</button></div></div>`;
     $("#u0").onclick = openGuide;
+    $("#uapi0").onclick = openApi;
     $("#u1").onclick = () => go("erfassen");
     $("#u2").onclick = () => { loadDemoHist(Object.keys(TYPES)); render(); };
     return;
@@ -928,7 +930,8 @@ function renderUeberblick(v) {
       <div class="row"><div class="spacer"><h2>Bestandsaufnahme</h2><p class="hint" style="margin:0">Stand ${dDE(sn.last)}${ks ? ` · Konto ${d.days || 90} Tage` : ""}</p></div>
         <div style="text-align:right"><div class="kpi-val" style="font-size:2rem">${sn.score ?? "–"}<span style="font-size:.9rem;color:var(--muted)">/100</span></div>${cls ? `<span class="badge ${cls}">${lbl}</span>` : ""}</div></div>
       <div class="bars" style="margin-top:14px">${Object.entries(sn.areas).filter(([, a]) => a.score != null || a.n).map(([t, a]) => `<div class="bar"><span>${AREA_LABEL(t)}${t !== "konto" ? ` <span class="meta">(${a.n})</span>` : ""}</span><span class="track"><span class="fill" style="display:block;width:${a.score ?? 0}%;${a.score == null ? "" : a.score < 40 ? "background:var(--bad)" : a.score < 60 ? "background:var(--ok)" : ""}"></span></span><span class="num">${a.score ?? "–"}</span></div>`).join("")}</div>
-      <button class="btn grad block" id="unew" style="margin-top:14px">${I.cam} ${ks ? "Neue Bestandsaufnahme" : "Schnell-Check · 4 Screenshots"}</button>
+      <div class="row" style="margin-top:14px"><button class="btn grad spacer" id="unew">${I.cam} ${ks ? "Screenshots" : "Schnell-Check"}</button><button class="btn spacer" id="uapi">${channel().api ? "↻ API-Abruf" : "Per API verbinden"}</button></div>
+      ${ks ? `<p class="hint" style="margin:8px 0 0">Konto-Daten vom ${dDE(ks.date)}${ks.src === "api" ? " · per API" : " · aus Screenshots"}</p>` : ""}
       <details><summary>Wie entsteht der Score?</summary><p>Jede Kennzahl mit Richtwert wird bewertet: stark = 100, solide = 60, ausbaufähig = 20 Punkte. Beiträge, Reels und Stories fließen mit dem Durchschnitt der letzten ${RECENT} Einträge ein, das Konto mit der letzten Bestandsaufnahme. Der Score ist eine schnelle Ampel – entscheidend sind die Befunde darunter.</p></details>
     </section>
     ${sn.findings.length ? `<div class="label">Befunde</div>${sn.findings.map(f => `<section class="card kpi ${f.lvl === "info" ? "" : f.lvl}"><div class="kpi-name">${lvlIcon[f.lvl]} ${esc(f.title)}</div><p style="margin:6px 0 0;font-size:.9rem">${esc(f.text)}</p></section>`).join("")}` : ""}
@@ -964,6 +967,7 @@ function renderUeberblick(v) {
     ${multi ? channelCompare() : ""}
     <button class="btn block" id="ucopy" style="margin-top:4px">${I.copy} Bestandsaufnahme kopieren</button>`;
   $("#unew").onclick = openGuide;
+  $("#uapi").onclick = () => channel().api ? runApiSync() : openApi();
   $("#ucopy").onclick = () => copyText(snapshotText(S.active));
   v.querySelectorAll("[data-sw]").forEach(b => b.onclick = () => { S.active = b.dataset.sw; editing = null; save(); render(); toast(`Kanal: ${channel().name}`); });
 }
@@ -1008,7 +1012,9 @@ function openGuide() {
       <li>Zeitraum überall auf <b>90 Tage</b> stellen${mode === "voll" ? ", bei „Inhalte“ auf <b>1 Jahr</b>" : ""}.</li>
       <li>Fehlt etwas, sagt die App nach dem Einlesen genau, welches Bild noch gebraucht wird.</li>
       <li>Die Bilder werden nur auf diesem Gerät ausgewertet.</li></ul></details>
-    <button class="btn grad block" id="gpick">${I.cam} ${mode === "schnell" ? "4 Screenshots auswählen" : "Screenshots auswählen (bis zu 40)"}</button>`, b => {
+    <button class="btn grad block" id="gpick">${I.cam} ${mode === "schnell" ? "4 Screenshots auswählen" : "Screenshots auswählen (bis zu 40)"}</button>
+    <button class="btn ghost block" id="gapi" style="margin-top:6px">Lieber direkt per Instagram-API verbinden →</button>`, b => {
+    b.querySelector("#gapi").onclick = openApi;
     b.querySelectorAll("[data-bm]").forEach(x => x.onclick = () => { S.ui.bestandMode = x.dataset.bm; save(); openGuide(); });
     b.querySelector("#gpick").onclick = () => { bestandPages = []; startBestandOcr(); };
   });
@@ -1069,6 +1075,94 @@ function showBestandResult(r) {
       toast(`Bestandsaufnahme gespeichert${n ? ` · ${n} Beiträge im Verlauf` : ""}`);
     };
   });
+}
+
+/* ================= Instagram-API ================= */
+function openApi() {
+  const c = channel(), api = c.api;
+  if (api) {
+    const left = api.expiresAt ? Math.max(0, Math.round((api.expiresAt - Date.now()) / 864e5)) : null;
+    openSheet(`<h2>Instagram-API</h2>
+      <div class="card"><div class="row"><span style="font-size:1.6rem">🔗</span><div class="spacer"><b>@${esc(api.username || "verbunden")}</b><div class="meta">Verbunden mit „${esc(c.name)}“${api.lastSync ? ` · zuletzt abgerufen ${new Date(api.lastSync).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}` : ""}</div></div></div>
+      ${left != null ? `<p class="hint" style="margin:10px 0 0">Schlüssel gültig noch ca. ${left} Tage – wird bei jedem Abruf automatisch verlängert.</p>` : ""}</div>
+      <label class="field"><span>Zeitraum</span><select id="apidays"><option value="30" ${(api.days || 30) === 30 ? "selected" : ""}>30 Tage</option><option value="90" ${api.days === 90 ? "selected" : ""}>90 Tage</option></select></label>
+      <button class="btn grad block" id="apisync" style="margin-top:12px">↻ Daten jetzt abrufen</button>
+      <p class="note">Profilaufrufe und Bio-Link-Klicks liefert die API nicht – dafür bei Bedarf den Leistung-Screenshot (unten) ergänzen.</p>
+      <button class="btn block" id="apioff">Verbindung trennen</button>`, b => {
+      b.querySelector("#apidays").onchange = e => { c.api.days = +e.target.value; save(); };
+      b.querySelector("#apisync").onclick = () => runApiSync();
+      armed(b.querySelector("#apioff"), "Wirklich trennen?", () => { delete c.api; save(); closeSheet(); render(); toast("Verbindung getrennt"); });
+    });
+    return;
+  }
+  openSheet(`<h2>Mit Instagram-API verbinden</h2>
+    <p class="hint">Statt Screenshots holt die App die Zahlen direkt von Instagram – für eigene oder verwaltete Konten (Business oder Creator). Einmal einrichten, danach reicht ein Tipp.</p>
+    <details class="card" open><summary>So bekommst du den Zugangsschlüssel (ca. 10 Minuten, am besten am Computer)</summary>
+      <ol class="insights" style="padding-left:20px">
+        <li><b>developers.facebook.com</b> öffnen, mit Facebook anmelden und – falls noch nicht geschehen – als Entwickler registrieren.</li>
+        <li><b>„App erstellen“</b> → Anwendungsfall <b>„Nachrichten und Inhalte auf Instagram verwalten“</b> wählen, App-Namen vergeben (z. B. „KPI-Trainer“).</li>
+        <li>In der App links <b>Instagram → „API-Einrichtung mit Instagram-Login“</b> öffnen.</li>
+        <li>Bei <b>„Zugriffstoken generieren“</b> auf <b>„Konto hinzufügen“</b> tippen und mit dem Instagram-Konto anmelden. Wird eine Tester-Rolle verlangt: unter <b>App-Rollen → Rollen</b> das Konto als Instagram-Tester eintragen und die Einladung in Instagram annehmen (Einstellungen → Website-Berechtigungen → Apps und Websites → Tester-Einladungen).</li>
+        <li><b>„Token generieren“</b>, Berechtigungen bestätigen und den langen Schlüssel kopieren.</li>
+      </ol>
+      <p class="hint" style="margin:6px 0 0">Die Meta-App muss dafür nicht veröffentlicht oder von Meta geprüft werden. Bezeichnungen im Meta-Dashboard können leicht abweichen.</p></details>
+    <label class="field"><span>Zugangsschlüssel (Token)</span><textarea id="apitoken" placeholder="IGAA…" style="min-height:90px" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></label>
+    <p class="note">Der Schlüssel wird nur auf diesem Gerät gespeichert, nicht in Sicherungen übernommen und nur an Instagram (graph.instagram.com) gesendet. Wer Zugriff auf das Gerät hat, kann damit die Statistiken des Kontos lesen.</p>
+    <button class="btn grad block" id="apigo">Verbinden & Daten abrufen</button>`, b => {
+    b.querySelector("#apigo").onclick = async () => {
+      const token = b.querySelector("#apitoken").value.trim().replace(/\s+/g, "");
+      if (token.length < 30) return toast("Bitte den vollständigen Schlüssel einfügen");
+      const btn = b.querySelector("#apigo"); btn.disabled = true; btn.textContent = "Prüfe Schlüssel …";
+      try {
+        const me = await IGApi.profile(token);
+        c.api = { token, username: me.username, savedAt: Date.now(), expiresAt: Date.now() + 60 * 864e5, days: 30 };
+        if (/^mein kanal$/i.test(c.name)) c.name = "@" + me.username;
+        save(); runApiSync();
+      } catch (e) { btn.disabled = false; btn.textContent = "Verbinden & Daten abrufen"; toast(IGApi.explain(e)); }
+    };
+  });
+}
+
+async function runApiSync() {
+  const c = channel();
+  if (!c.api) return openApi();
+  openSheet(`<h2>Daten werden abgerufen</h2><div class="spinner"></div><p class="hint" style="text-align:center" id="apistat">Verbindung wird aufgebaut …</p>`);
+  const stat = t => { const el = $("#apistat"); if (el) el.textContent = t + " …"; };
+  try {
+    c.api = await IGApi.refreshIfDue(c.api); save();
+    const r = await IGApi.sync(c.api, { days: c.api.days || 30 }, stat);
+    applyApiResult(r);
+    c.api.lastSync = Date.now(); c.api.username = r.me.username; save();
+    closeSheet(); go("ueberblick");
+    const nP = r.items.filter(x => !x.isReel).length, nR = r.items.filter(x => x.isReel).length;
+    toast(`Aktualisiert · ${nP} Beiträge, ${nR} Reels`);
+  } catch (e) {
+    openSheet(`<h2>Abruf fehlgeschlagen</h2><p class="hint">${esc(IGApi.explain(e))}</p>
+      <div class="row"><button class="btn primary spacer" id="aretry">Erneut versuchen</button><button class="btn spacer" id="anew">Neuen Schlüssel eingeben</button></div>`, b => {
+      b.querySelector("#aretry").onclick = runApiSync;
+      b.querySelector("#anew").onclick = () => { delete c.api; save(); openApi(); };
+    });
+  }
+}
+
+function applyApiResult(r) {
+  const date = today(), list = CH().konto, prev = list.find(x => x.date === date);
+  const d = Object.fromEntries(Object.entries(r.account).filter(([, v]) => v != null));
+  const snap = { id: prev?.id || newId(), date, src: "api", d: { ...(prev?.d || {}), ...d }, delta: { ...(prev?.delta || {}), ...Object.fromEntries(Object.entries(r.delta).filter(([, v]) => v != null)) },
+    age: Object.keys(r.age).length ? r.age : prev?.age || {}, cities: Object.keys(r.cities).length ? r.cities : prev?.cities || {}, bioLink: r.bioLink || prev?.bioLink || null, ex: r.ex };
+  if (prev) list[list.indexOf(prev)] = snap; else list.push(snap);
+  const clean = s => (s || "").replace(/\s+/g, " ").replace(/[#@][\w.]+/g, m => m).trim();
+  for (const { m, isReel, v } of r.items) {
+    const t = isReel ? "reel" : "beitrag", dt = m.timestamp.slice(0, 10);
+    const name = clean(m.caption).slice(0, 30) || `${isReel ? "Reel" : "Beitrag"} ${dDE(dt)}`;
+    const dd = isReel
+      ? { reach: v.reach, plays: v.views, interactions: v.total_interactions, saves: v.saved, shares: v.shares, avgwatch: v.ig_reels_avg_watch_time != null ? Math.round(v.ig_reels_avg_watch_time / 100) / 10 : null }
+      : { format: m.media_type === "CAROUSEL_ALBUM" ? "Karussell" : "Einzelbild", reach: v.reach, views: v.views, likes: v.likes ?? m.like_count, comments: v.comments ?? m.comments_count, saves: v.saved, shares: v.shares, follows: v.follows, followers: r.account.followers };
+    Object.keys(dd).forEach(k => dd[k] == null && delete dd[k]);
+    const hist = CH().hist[t], ex = hist.find(e => e.igId === m.id);
+    if (ex) { Object.assign(ex.d, dd); ex.date = dt; } else hist.push({ id: newId(), igId: m.id, name, date: dt, d: dd, src: "api" });
+  }
+  save();
 }
 
 /* ================= Kein Zoom, App-Gefühl ================= */
