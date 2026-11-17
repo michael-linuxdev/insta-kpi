@@ -1,0 +1,17 @@
+{
+  "name": "Insta-KPI-Trainer",
+  "short_name": "KPI-Trainer",
+  "description": "Instagram-Kennzahlen verstehen, vergleichen und berichten.",
+  "lang": "de",
+  "start_url": "./#ueberblick",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f3f7",
+  "theme_color": "#d62976",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
