@@ -62,8 +62,8 @@ const OCR = (() => {
     for (let i = 0; i < files.length; i++) {
       onProgress && onProgress({ status: `Screenshot ${i + 1} von ${files.length} wird gelesen`, p: i / files.length });
       const canvas = await prepare(files[i]);
-      const { data } = await w.recognize(canvas);
-      texts.push(data.text || "");
+      const { data } = await w.recognize(canvas, {}, { text: true, tsv: true });
+      texts.push({ text: data.text || "", tsv: data.tsv || "" });
     }
     return texts;
   }

@@ -22,7 +22,7 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 const emptyChannelData = () => ({
   draft: { beitrag: {}, reel: {}, story: {}, profil: {} },
   hist: { beitrag: [], reel: [], story: [], profil: [] },
-  goals: {}, deal: { nPost: 1, nReel: 0, nStory: 3 },
+  goals: {}, deal: { nPost: 1, nReel: 0, nStory: 3 }, konto: [],
 });
 function defaultState() {
   const id = newId();
@@ -36,6 +36,7 @@ S.ui = Object.assign(defaultState().ui, S.ui || {});
 for (const c of S.channels) {
   const d = S.data[c.id] = Object.assign(emptyChannelData(), S.data[c.id] || {});
   for (const t in TYPES) { d.draft[t] = d.draft[t] || {}; d.hist[t] = Array.isArray(d.hist[t]) ? d.hist[t] : []; }
+  if (!Array.isArray(d.konto)) d.konto = [];
 }
 if (!S.data[S.active]) S.active = S.channels[0].id;
 
@@ -90,7 +91,9 @@ const seg = (items, cur, attr) => `<div class="seg" role="group">${items.map(([k
   `<button data-${attr}="${k}" aria-pressed="${k === cur}">${esc(l)}</button>`).join("")}</div>`;
 
 /* KPI-Wert, der für Ziele als „aktuell“ gilt: letzter Verlaufseintrag, sonst Eingabe */
+function latestKonto(chId = S.active) { const k = S.data[chId].konto || []; return k.length ? [...k].sort((a, b) => a.date.localeCompare(b.date)).pop() : null; }
 function currentValue(k) {
+  if (k.t === "konto" || k.t === "export") { const s = latestKonto(); const v = s ? evalKpi(k, k.t === "export" ? s.ex : s.d) : null; return v != null ? { v, src: `Bestandsaufnahme ${dDE(s.date)}` } : null; }
   const h = sortedHist(k.t);
   for (let i = h.length - 1; i >= 0; i--) { const v = evalKpi(k, h[i].d); if (v != null) return { v, src: h[i].name }; }
   const v = evalKpi(k, CH().draft[k.t]);
@@ -249,20 +252,22 @@ function renderErfassen(v) {
 }
 
 /* ================= Screenshot / OCR ================= */
-let ocrTexts = [], ocrThumbs = [];
-function startOcr() { const f = $("#file"); f.value = ""; f.click(); }
+let ocrTexts = [], ocrThumbs = [], ocrMode = "single";
+function startOcr() { ocrMode = "single"; const f = $("#file"); f.value = ""; f.click(); }
+function startBestandOcr() { ocrMode = "bestand"; const f = $("#file"); f.value = ""; f.click(); }
 $("#file").onchange = async e => {
+  if (ocrMode === "bestand") return runBestand([...e.target.files].slice(0, 40));
   const files = [...e.target.files].slice(0, 6); if (!files.length) return;
   ocrThumbs.forEach(u => URL.revokeObjectURL(u)); ocrThumbs = files.map(f => URL.createObjectURL(f));
   openSheet(`<h2>Screenshot wird gelesen</h2><div class="thumbs">${ocrThumbs.map(u => `<img src="${u}" alt="">`).join("")}</div>
     <div class="spinner"></div><p class="hint" style="text-align:center" id="ocrstat">Texterkennung wird gestartet …</p>
     <p class="note" style="text-align:center">Die Bilder werden nur auf deinem Gerät verarbeitet und nicht hochgeladen.</p>`);
   try {
-    ocrTexts = await OCR.recognize(files, p => {
+    ocrTexts = (await OCR.recognize(files, p => {
       const el = $("#ocrstat"); if (!el) return;
       const map = { "loading tesseract core": "Erkennung laden", "initializing tesseract": "Starten", "loading language traineddata": "Sprachdaten laden (einmalig)", "initializing api": "Starten", "recognizing text": "Text erkennen" };
       el.textContent = `${map[p.status] || p.status} … ${Math.round((p.p || 0) * 100)} %`;
-    });
+    })).map(p => p.text);
     showOcrResult(OCR.detectType(ocrTexts.join("\n")));
   } catch (err) {
     openSheet(`<h2>Das hat nicht geklappt</h2><p class="hint">${esc(err.message || err)}</p><button class="btn block" onclick="closeSheet()">Schließen</button>`);
@@ -458,7 +463,7 @@ function bindBackup() {
 
 /* ================= Ziele ================= */
 function renderZiele(v) {
-  const t = S.ui.goalType, ks = kpisOf(t).filter(k => k.ok !== undefined);
+  const t = S.ui.goalType, ks = (t === "konto" ? [...kpisOf("konto"), ...kpisOf("export")] : kpisOf(t)).filter(k => k.ok !== undefined || k.id === "k_female");
   const goals = CH().goals;
   const set = ks.filter(k => goals[k.id]?.v != null);
   const reached = set.filter(k => { const c = currentValue(k); return c && goalStatus(k, c.v, goals[k.id]).done; }).length;
@@ -467,10 +472,10 @@ function renderZiele(v) {
       <p class="hint" style="margin:0">Gute Ziele sind SMART: spezifisch, messbar, attraktiv, realistisch und terminiert. Also nicht „mehr Engagement“, sondern „Save-Rate von 0,8 % auf 1,5 % bis Ende März“.</p>
       ${set.length ? `<div class="tiles"><div class="tile"><div class="t">Ziele gesetzt</div><div class="v">${set.length}</div></div><div class="tile ${reached ? "hl" : ""}"><div class="t">Erreicht</div><div class="v">${reached} / ${set.length}</div></div></div>` : ""}
     </section>
-    ${seg(Object.entries(TYPES).map(([k, x]) => [k, x.label]), t, "gt")}
+    ${seg([["konto", "Konto"], ...Object.entries(TYPES).map(([k, x]) => [k, x.label])], t, "gt")}
     ${ks.map(k => {
       const g = goals[k.id] || {}, cur = currentValue(k), gs = goalStatus(k, cur?.v, g);
-      const sugg = k.inv ? k.good : (cur && cur.v >= k.good ? Math.round(cur.v * 1.15 * 100) / 100 : k.good);
+      const sugg = k.good === undefined ? (cur ? Math.round(cur.v + 10) : 50) : k.inv ? k.good : (cur && cur.v >= k.good ? Math.round(cur.v * 1.15 * 100) / 100 : k.good);
       return `<section class="card" data-goal="${k.id}">
         <div class="kpi-top"><span class="kpi-name">${esc(k.n)}</span><span class="kpi-val" style="font-size:1.15rem">${cur ? esc(fmtKpi(k, cur.v)) : "–"}</span></div>
         <p class="bench" style="margin:2px 0 8px">${cur ? `Aktuell aus „${esc(cur.src)}“` : "Noch kein Wert – erst Zahlen erfassen"} · ${esc(k.b)}</p>
@@ -562,6 +567,16 @@ function buildReport(period, forWhom, withTips) {
     L.push(`• Ziele: ${done} von ${gIds.length} erreicht`);
   }
   L.push("");
+  const ks = latestKonto();
+  if (ks) {
+    const sn = snapshot(S.active), d = ks.d, dl = ks.delta || {};
+    L.push(`KONTO (Bestandsaufnahme ${dDE(ks.date)}, ${d.days || 90} Tage)`);
+    [["followers", "Follower"], ["net", "Netto-Follower"], ["views", "Aufrufe"], ["reached", "Betrachter"], ["profileVisits", "Profilaufrufe"]]
+      .forEach(([k, l]) => d[k] != null && L.push(`• ${l}: ${fmtNum(d[k], 0)}${dl[k] != null ? ` (${fmtDeltaPct(dl[k])} ggü. Vorzeitraum)` : ""}`));
+    for (const id of ["k_nonf", "k_reels", "k_conv", "k_link", "k_growth", "k_female"]) { const k = KPI_BY_ID[id], a = sn.kv[id]; if (a != null) L.push(`• ${k.n}: ${fmtKpi(k, a)}${rateKpi(k, a) ? " – " + RATE_LABEL[rateKpi(k, a)] : ""}`); }
+    if (sn.findings.length) { L.push("Befunde:"); sn.findings.slice(0, 4).forEach(f => L.push(`  – ${f.title}`)); }
+    L.push("");
+  }
   sections.forEach(s => { L.push(s); L.push(""); });
 
   // Formate
@@ -632,7 +647,7 @@ const CPM = { post: [10, 25], reel: [12, 30], story: [5, 15] };
 function dealFromHistory() {
   const h = CH().hist, dl = CH().deal;
   const a = (list, f) => { const v = avg(list.map(e => f(e.d)).filter(x => x != null && isFinite(x))); return v == null ? null : Math.round(v); };
-  const lastF = [...sortedHist("profil"), ...sortedHist("beitrag")].map(e => e.d.followers).filter(Boolean).pop();
+  const lastF = latestKonto()?.d.followers ?? [...sortedHist("profil"), ...sortedHist("beitrag")].map(e => e.d.followers).filter(Boolean).pop();
   const er = avg([...h.beitrag.map(e => evalKpi(KPI_BY_ID.b_er_reach, e.d)), ...h.reel.map(e => evalKpi(KPI_BY_ID.r_er, e.d))].filter(v => v != null));
   const vals = { followers: lastF, rPost: a(h.beitrag, d => d.reach), rReel: a(h.reel, d => d.reach), rStory: a(h.story, d => d.first), er: er == null ? null : Math.round(er * 100) / 100 };
   let n = 0; for (const k in vals) if (vals[k] != null) { dl[k] = vals[k]; n++; }
@@ -705,104 +720,176 @@ function renderDeals(v) {
 /* ================= Bestandsaufnahme ================= */
 const RECENT = 5; // Basis: die letzten 5 Einträge je Bereich
 const SCORE = { good: 100, ok: 60, bad: 20 };
+const AREA_LABEL = t => ({ konto: "Konto", export: "Zeitraum-Export" }[t] || TYPES[t].plural);
+const fmtDeltaPct = v => v == null ? "" : `${v > 0 ? "+" : v < 0 ? "−" : "±"}${fmtNum(Math.abs(v), 1)} %`;
+
 function snapshot(chId) {
   const data = S.data[chId];
   const sorted = t => [...data.hist[t]].sort((a, b) => a.date.localeCompare(b.date));
-  const out = { areas: {}, strengths: [], issues: [], gaps: [], total: 0, last: "" };
+  const out = { areas: {}, strengths: [], issues: [], gaps: [], total: 0, last: "", kv: {} };
   const scores = [];
+  const rate = (t, k, a) => {
+    const r = rateKpi(k, a);
+    out.areas[t].kpis.push({ k, a, r }); out.kv[k.id] = a;
+    if (r) { scores.push(SCORE[r]); if (r === "good") out.strengths.push({ k, a, t }); if (r === "bad") out.issues.push({ k, a, t }); }
+  };
+  const ks = latestKonto(chId);
+  out.konto = ks;
+  if (ks) {
+    out.areas.konto = { n: 1, kpis: [], score: null };
+    for (const k of kpisOf("konto")) { const a = evalKpi(k, ks.d); if (a != null) rate("konto", k, a); }
+    if (ks.ex) for (const k of kpisOf("export")) { const a = evalKpi(k, ks.ex); if (a != null) rate("konto", k, a); }
+    out.last = ks.date; out.total += 1;
+  }
   for (const t in TYPES) {
     const all = sorted(t), rec = all.slice(-RECENT);
-    const area = { n: all.length, kpis: [], score: null };
-    if (all.length) out.last = all[all.length - 1].date > out.last ? all[all.length - 1].date : out.last;
+    out.areas[t] = { n: all.length, kpis: [], score: null };
+    if (all.length && all[all.length - 1].date > out.last) out.last = all[all.length - 1].date;
     out.total += all.length;
-    for (const k of kpisOf(t)) {
-      const a = avg(rec.map(e => evalKpi(k, e.d)).filter(v => v != null));
-      if (a == null) continue;
-      const r = rateKpi(k, a);
-      area.kpis.push({ k, a, r });
-      if (r) { scores.push(SCORE[r]); if (r === "good") out.strengths.push({ k, a, t }); if (r === "bad") out.issues.push({ k, a, t }); }
-    }
-    const rs = area.kpis.filter(x => x.r).map(x => SCORE[x.r]);
-    area.score = rs.length ? Math.round(avg(rs)) : null;
-    if (all.length === 0) out.gaps.push(`Keine ${TYPES[t].plural}-Daten – mindestens 3 erfassen für eine Einschätzung.`);
-    else if (all.length < 3) out.gaps.push(`Erst ${all.length} ${all.length === 1 ? TYPES[t].label : TYPES[t].plural} – ab 3 Einträgen wird das Bild verlässlicher.`);
-    out.areas[t] = area;
+    for (const k of kpisOf(t)) { const a = avg(rec.map(e => evalKpi(k, e.d)).filter(v => v != null)); if (a != null) rate(t, k, a); }
+    if (!all.length && t !== "profil" && !(t === "reel" && ks?.ex?.reels === 0)) out.gaps.push(`Keine ${TYPES[t].plural}-Daten – mindestens 3 erfassen für eine Einschätzung.`);
+    else if (all.length && all.length < 3) out.gaps.push(`Erst ${all.length} ${all.length === 1 ? TYPES[t].label : TYPES[t].plural} – ab 3 Einträgen wird das Bild verlässlicher.`);
   }
+  for (const a of Object.values(out.areas)) { const rs = a.kpis.filter(x => x.r).map(x => SCORE[x.r]); a.score = rs.length ? Math.round(avg(rs)) : null; }
   out.score = scores.length ? Math.round(avg(scores)) : null;
-  const gk = Object.keys(data.goals).filter(id => KPI_BY_ID[id]);
-  if (!gk.length && out.total) out.gaps.push("Noch keine Ziele gesetzt.");
-  if (out.last) { const age = Math.floor((new Date() - new Date(out.last)) / 864e5); if (age > 30) out.gaps.push(`Letzter Eintrag ist ${age} Tage alt – Daten aktualisieren.`); }
-  // Steckbrief
+  if (!ks) out.gaps.unshift("Noch keine Konto-Bestandsaufnahme – Dashboard-Screenshots einlesen.");
+  if (!Object.keys(data.goals).some(id => KPI_BY_ID[id]) && out.total) out.gaps.push("Noch keine Ziele gesetzt.");
+  if (out.last) { const age = Math.floor((new Date() - new Date(out.last)) / 864e5); if (age > 30) out.gaps.push(`Letzte Daten sind ${age} Tage alt – aktualisieren.`); }
   const prof = sorted("profil"), post = sorted("beitrag");
-  out.followers = [...prof, ...post].sort((a, b) => a.date.localeCompare(b.date)).map(e => e.d.followers).filter(Boolean).pop() ?? null;
+  out.followers = ks?.d.followers ?? [...prof, ...post].map(e => e.d.followers).filter(Boolean).pop() ?? null;
   const ra = t => avg(sorted(t).slice(-RECENT).map(e => t === "story" ? e.d.first : e.d.reach).filter(Boolean));
   out.reachPost = ra("beitrag"); out.reachReel = ra("reel"); out.reachStory = ra("story");
-  const kv = (id) => { const x = Object.values(out.areas).flatMap(a => a.kpis).find(y => y.k.id === id); return x ? x.a : null; };
-  out.erPost = kv("b_er_reach"); out.erReel = kv("r_er"); out.growth = kv("p_growth"); out.conv = kv("p_conv");
+  const kv = id => out.kv[id] ?? null;
+  out.erPost = kv("b_er_reach"); out.erReel = kv("r_er"); out.growth = kv("k_growth") ?? kv("p_growth"); out.conv = kv("k_conv") ?? kv("p_conv");
   out.issues.sort((a, b) => a.a / (a.k.ok || 1) - b.a / (b.k.ok || 1));
+  out.findings = findings(out, data);
   return out;
+}
+
+/* Befunde: Zahlen in Klartext übersetzen */
+function findings(sn, data) {
+  const F = [], ks = sn.konto, d = ks?.d || {}, ex = ks?.ex, kv = sn.kv;
+  const add = (lvl, title, text) => F.push({ lvl, title, text });
+  if (ex && ex.reels === 0) add("bad", "Keine Reels im Zeitraum", `In ${ex.days || "den letzten"} Tagen wurde kein Reel veröffentlicht. Reels sind das Format, das Instagram am stärksten an Menschen ausspielt, die noch nicht folgen – hier liegt der größte Hebel für Wachstum.`);
+  else if (kv.k_reels != null && kv.k_reels < 10) add("bad", "Reels kaum genutzt", `Nur ${fmtNum(kv.k_reels, 1)} % aller Aufrufe stammen aus Reels. Reels sind das wichtigste Format, um neue Zuschauer zu erreichen.`);
+  if (ks?.delta?.reached != null && ks.delta.reached <= -15) add("bad", "Deutlich weniger Menschen erreicht", `Die Zahl der Betrachter ist um ${fmtNum(Math.abs(ks.delta.reached), 1)} % gegenüber dem Vorzeitraum gesunken${ks.delta.views != null ? `, während die Aufrufe ${fmtDeltaPct(ks.delta.views)} liegen` : ""}. Es schauen also weniger verschiedene Menschen zu, diese dafür häufiger.`);
+  if (kv.k_nonf != null && kv.k_nonf < 40) add(kv.k_nonf < 25 ? "bad" : "ok", "Reichweite kommt vor allem von Followern", `${fmtNum(100 - kv.k_nonf, 1)} % der Aufrufe kommen von bestehenden Followern, nur ${fmtNum(kv.k_nonf, 1)} % von Nicht-Followern${ks?.delta?.viewsNF != null ? ` (${fmtDeltaPct(ks.delta.viewsNF)} ggü. Vorzeitraum)` : ""}. Für Wachstum braucht es mehr Inhalte, die über die eigene Community hinaus ausgespielt werden.`);
+  if (kv.k_freq != null && kv.k_freq > 8) add("good", "Sehr treue Stamm-Community", `Jedes erreichte Konto hat im Schnitt ${fmtNum(kv.k_freq, 1)} Inhalte gesehen. Die Community ist eng gebunden – eine gute Basis für Kooperationen mit Vertrauensvorschuss.`);
+  if (kv.x_ipf != null && kv.x_ipf >= 50) add("good", "Hohe Aktivität der Follower", `Pro Monat kommen Interaktionen in Höhe von ${fmtNum(kv.x_ipf, 0)} % der Followerzahl zusammen – die Community reagiert stark auf Inhalte.`);
+  if (d.vStories && d.vPosts) {
+    const sv = d.vStories / (d.vPosts + d.vStories + (d.vReels || 0)) * 100;
+    if (sv > 25) add("good", "Stories tragen die Beziehung", `${fmtNum(sv, 0)} % der Aufrufe stammen aus Stories${kv.k_istory != null ? `, mit ${fmtNum(kv.k_istory, 1)} Interaktionen je 100 Aufrufe` : ""}. Stories sind der Ort, an dem die Community am direktesten erreicht wird – ideal für Umfragen, Einblicke und später Kooperations-Stories.`);
+  }
+  if (kv.k_link != null && kv.k_link < 3) {
+    const toSocial = /tiktok|youtube|instagram|facebook/i.test(ks?.bioLink || "");
+    add("bad", "Bio-Link wird kaum genutzt", `Nur ${fmtNum(kv.k_link, 2)} % der Profilbesucher tippen auf den Link.${toSocial ? " Er führt aktuell zu einer anderen Social-Media-Plattform – für Kooperationen fehlt ein eigenes Ziel wie eine Linkseite mit Kontakt, Media-Kit und Angeboten." : " Der Link braucht ein klares, attraktives Ziel und einen Hinweis in der Bio."}`);
+  }
+  if (kv.k_conv != null && kv.k_conv < 8) add("ok", "Profil überzeugt noch nicht genug", `${fmtNum(kv.k_conv, 1)} % der Profilaufrufe werden zu Followern. Bio, angepinnte Beiträge und Highlights entscheiden, ob Besucher bleiben.`);
+  if (d.female != null && Math.max(d.female, d.male ?? 100 - d.female) >= 65) {
+    const f = d.female, maj = f >= 50 ? "Frauen" : "Männer", pct = f >= 50 ? f : (d.male ?? 100 - f);
+    const top = Object.entries(ks.age || {}).sort((a, b) => b[1] - a[1])[0];
+    add("info", "Zielgruppe ist sehr einseitig", `${fmtNum(pct, 1)} % der Follower sind ${maj}${top ? `, größte Altersgruppe ${top[0]} Jahre (${fmtNum(top[1], 1)} %)` : ""}. Für Kooperationen zählt, ob das zur Zielgruppe der Marke passt. Soll sich das Publikum verschieben, braucht es Inhalte, die gezielt die gewünschte Gruppe ansprechen.`);
+  }
+  if (kv.k_ratio != null && kv.k_ratio > 15) add("ok", "Viele gefolgte Accounts", `Das Profil folgt ${fmtNum(d.following, 0)} Accounts (${fmtNum(kv.k_ratio, 0)} % der Followerzahl). Marken achten darauf; ein Wert unter 10 % wirkt professioneller.`);
+  if (kv.k_growth != null) add(kv.k_growth >= 1 ? "good" : "bad", kv.k_growth >= 1 ? "Stetiges Wachstum" : "Wachstum stockt", `Netto ${fmtNum(kv.k_growth, 1)} % Follower pro Monat${kv.k_churn != null ? `, bei ${fmtNum(kv.k_churn, 1)} % Abwanderung` : ""}.`);
+  // Top-Beiträge
+  const posts = data.hist.beitrag.filter(e => e.d.follows != null && e.d.reach);
+  if (posts.length >= 3) {
+    const top = [...posts].sort((a, b) => b.d.follows / b.d.reach - a.d.follows / a.d.reach).slice(0, 2);
+    add("info", "Was neue Follower bringt", `Die meisten neuen Follower pro Reichweite brachten „${top.map(p => p.name).join("“ und „")}“ (${top.map(p => fmtNum(p.d.follows / p.d.reach * 100, 2) + " %").join(" bzw. ")}). Diese Art Inhalt als Vorlage für weitere Beiträge nutzen.`);
+  }
+  const order = { bad: 0, ok: 1, info: 2, good: 3 };
+  return F.sort((a, b) => order[a.lvl] - order[b.lvl]);
 }
 const scoreLabel = s => s == null ? ["", "–"] : s >= 80 ? ["good", "sehr gut"] : s >= 60 ? ["ok", "solide"] : s >= 40 ? ["ok", "mit Luft nach oben"] : ["bad", "kritisch"];
 
 function snapshotText(chId) {
-  const sn = snapshot(chId), c = S.channels.find(x => x.id === chId), L = [];
+  const sn = snapshot(chId), c = S.channels.find(x => x.id === chId), L = [], ks = sn.konto;
   L.push(`Bestandsaufnahme: ${c.name}`);
-  L.push(`Stand ${sn.last ? dDE(sn.last) : "–"} · Basis: je Bereich die letzten ${RECENT} Einträge`);
+  L.push(`Stand ${sn.last ? dDE(sn.last) : "–"}${ks ? ` · Konto-Zeitraum ${ks.d.days || 90} Tage` : ""}`);
   L.push("");
   L.push(`Gesamt-Score: ${sn.score ?? "–"}/100 (${scoreLabel(sn.score)[1]})`);
-  for (const t in TYPES) { const a = sn.areas[t]; L.push(`• ${TYPES[t].plural}: ${a.score != null ? a.score + "/100" : "keine Daten"} (${a.n} Einträge)`); }
+  for (const t of Object.keys(sn.areas)) { const a = sn.areas[t]; if (a.score != null) L.push(`• ${AREA_LABEL(t)}: ${a.score}/100`); }
   L.push("");
-  L.push("STECKBRIEF");
-  if (sn.followers) L.push(`• Follower: ${fmtNum(sn.followers, 0)}`);
-  if (sn.reachPost) L.push(`• Ø Reichweite Beitrag: ${fmtNum(Math.round(sn.reachPost), 0)}`);
-  if (sn.reachReel) L.push(`• Ø Reichweite Reel: ${fmtNum(Math.round(sn.reachReel), 0)}`);
-  if (sn.reachStory) L.push(`• Ø Story-Aufrufe: ${fmtNum(Math.round(sn.reachStory), 0)}`);
-  if (sn.erPost != null) L.push(`• Ø Engagement-Rate Beitrag: ${fmtNum(sn.erPost)} %`);
-  if (sn.erReel != null) L.push(`• Ø Engagement-Rate Reel: ${fmtNum(sn.erReel)} %`);
-  if (sn.growth != null) L.push(`• Wachstumsrate: ${fmtNum(sn.growth)} %`);
-  L.push("");
-  if (sn.strengths.length) { L.push("STÄRKEN"); sn.strengths.forEach(s => L.push(`• ${s.k.n} (${TYPES[s.t].plural}): ${fmtKpi(s.k, s.a)}`)); L.push(""); }
-  if (sn.issues.length) { L.push("BAUSTELLEN"); sn.issues.forEach(s => L.push(`• ${s.k.n} (${TYPES[s.t].plural}): ${fmtKpi(s.k, s.a)} → ${s.k.tips ? s.k.tips[0] : ""}`)); L.push(""); }
+  if (ks) {
+    const d = ks.d, dl = ks.delta || {};
+    L.push("KONTO");
+    [["followers", "Follower"], ["net", "Netto-Follower"], ["views", "Aufrufe"], ["reached", "Betrachter"], ["profileVisits", "Profilaufrufe"], ["linkTaps", "Taps auf Bio-Link"]]
+      .forEach(([k, l]) => d[k] != null && L.push(`• ${l}: ${fmtNum(d[k], 0)}${dl[k] != null ? ` (${fmtDeltaPct(dl[k])})` : ""}`));
+    if (d.female != null) L.push(`• Zielgruppe: ${fmtNum(d.female, 1)} % Frauen, ${fmtNum(d.male ?? 100 - d.female, 1)} % Männer`);
+    L.push("");
+  }
+  if (sn.findings.length) { L.push("BEFUNDE"); sn.findings.forEach(f => L.push(`• ${f.title}: ${f.text}`)); L.push(""); }
+  if (sn.strengths.length) { L.push("STÄRKEN"); sn.strengths.forEach(s => L.push(`• ${s.k.n} (${AREA_LABEL(s.t)}): ${fmtKpi(s.k, s.a)}`)); L.push(""); }
+  if (sn.issues.length) { L.push("BAUSTELLEN"); sn.issues.forEach(s => L.push(`• ${s.k.n} (${AREA_LABEL(s.t)}): ${fmtKpi(s.k, s.a)}${s.k.tips ? " → " + s.k.tips[0] : ""}`)); L.push(""); }
   if (sn.gaps.length) { L.push("DATENLÜCKEN"); sn.gaps.forEach(g => L.push(`• ${g}`)); }
   return L.join("\n");
 }
+
+const tileHTML = (t, val, delta) => val == null ? "" : `<div class="tile"><div class="t">${t}</div><div class="v">${val}</div>${delta != null ? `<div class="meta" style="color:${delta >= 0 ? "var(--good)" : "var(--bad)"};font-weight:650">${fmtDeltaPct(delta)}</div>` : ""}</div>`;
+const barsHTML = rows => { const mx = Math.max(...rows.map(r => r[1])) || 1; return `<div class="bars">${rows.map(([l, v, txt]) => `<div class="bar"><span>${esc(l)}</span><span class="track"><span class="fill" style="display:block;width:${v / mx * 100}%"></span></span><span class="num">${esc(txt ?? fmtNum(v, 0))}</span></div>`).join("")}</div>`; };
 
 function renderUeberblick(v) {
   const sn = snapshot(S.active);
   if (!sn.total) {
     v.innerHTML = `<div class="card empty-state"><div class="big">🔎</div><h2>Bestandsaufnahme für „${esc(channel().name)}“</h2>
-      <p>Hier entsteht ein Gesamtbild des Kanals: Score je Bereich, Stärken, Baustellen und Datenlücken. Dafür braucht es gespeicherte Einträge.</p>
-      <div class="row" style="justify-content:center"><button class="btn primary" id="u1">Zahlen erfassen</button><button class="btn" id="u2">Beispieldaten</button></div></div>`;
+      <p>Screenshots aus dem Instagram-Dashboard einlesen – die App ermittelt Kennzahlen, Zielgruppe, Stärken und Baustellen des Kanals.</p>
+      <button class="btn grad block" id="u0">${I.cam} Bestandsaufnahme starten</button>
+      <div class="row" style="justify-content:center;margin-top:10px"><button class="btn ghost" id="u1">Zahlen von Hand erfassen</button><button class="btn ghost" id="u2">Beispieldaten</button></div></div>`;
+    $("#u0").onclick = openGuide;
     $("#u1").onclick = () => go("erfassen");
     $("#u2").onclick = () => { loadDemoHist(Object.keys(TYPES)); render(); };
     return;
   }
-  const [cls, lbl] = scoreLabel(sn.score);
-  const tile = (t, val) => val == null ? "" : `<div class="tile"><div class="t">${t}</div><div class="v">${val}</div></div>`;
+  const [cls, lbl] = scoreLabel(sn.score), ks = sn.konto, d = ks?.d || {}, dl = ks?.delta || {}, kv = sn.kv;
   const multi = S.channels.length > 1;
+  const lvlIcon = { bad: "🔴", ok: "🟠", info: "🔵", good: "🟢" };
+  const mixV = d.vPosts != null ? [["Beiträge", d.vPosts], ["Stories", d.vStories || 0], ["Reels", d.vReels || 0]] : null;
+  const mixI = d.iPosts != null ? [["Beiträge", d.iPosts], ["Stories", d.iStories || 0], ["Reels", d.iReels || 0]] : null;
+  const ages = Object.entries(ks?.age || {}).sort();
+  const cities = Object.entries(ks?.cities || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const ex = ks?.ex;
   v.innerHTML = `
     <section class="card">
-      <div class="row"><div class="spacer"><h2>Bestandsaufnahme</h2><p class="hint" style="margin:0">Stand ${dDE(sn.last)} · je Bereich die letzten ${RECENT} Einträge</p></div>
+      <div class="row"><div class="spacer"><h2>Bestandsaufnahme</h2><p class="hint" style="margin:0">Stand ${dDE(sn.last)}${ks ? ` · Konto ${d.days || 90} Tage` : ""}</p></div>
         <div style="text-align:right"><div class="kpi-val" style="font-size:2rem">${sn.score ?? "–"}<span style="font-size:.9rem;color:var(--muted)">/100</span></div>${cls ? `<span class="badge ${cls}">${lbl}</span>` : ""}</div></div>
-      <div class="bars" style="margin-top:14px">${Object.entries(TYPES).map(([t, T]) => { const a = sn.areas[t]; return `<div class="bar"><span>${T.plural} <span class="meta">(${a.n})</span></span><span class="track"><span class="fill" style="display:block;width:${a.score ?? 0}%;${a.score == null ? "" : a.score < 40 ? "background:var(--bad)" : a.score < 60 ? "background:var(--ok)" : ""}"></span></span><span class="num">${a.score ?? "–"}</span></div>`; }).join("")}</div>
-      <details><summary>Wie entsteht der Score?</summary><p>Jede Kennzahl mit Richtwert wird über die letzten ${RECENT} Einträge gemittelt und bewertet: stark = 100, solide = 60, ausbaufähig = 20 Punkte. Der Score ist der Durchschnitt – eine schnelle Ampel, kein Urteil. Entscheidend ist, welche Kennzahlen dahinterstehen.</p></details>
+      <div class="bars" style="margin-top:14px">${Object.entries(sn.areas).filter(([, a]) => a.score != null || a.n).map(([t, a]) => `<div class="bar"><span>${AREA_LABEL(t)}${t !== "konto" ? ` <span class="meta">(${a.n})</span>` : ""}</span><span class="track"><span class="fill" style="display:block;width:${a.score ?? 0}%;${a.score == null ? "" : a.score < 40 ? "background:var(--bad)" : a.score < 60 ? "background:var(--ok)" : ""}"></span></span><span class="num">${a.score ?? "–"}</span></div>`).join("")}</div>
+      <button class="btn grad block" id="unew" style="margin-top:14px">${I.cam} ${ks ? "Neue Bestandsaufnahme / ergänzen" : "Dashboard-Screenshots einlesen"}</button>
+      <details><summary>Wie entsteht der Score?</summary><p>Jede Kennzahl mit Richtwert wird bewertet: stark = 100, solide = 60, ausbaufähig = 20 Punkte. Beiträge, Reels und Stories fließen mit dem Durchschnitt der letzten ${RECENT} Einträge ein, das Konto mit der letzten Bestandsaufnahme. Der Score ist eine schnelle Ampel – entscheidend sind die Befunde darunter.</p></details>
     </section>
-    <div class="label">Steckbrief</div>
-    <section class="card"><div class="tiles" style="margin:0">
-      ${tile("Follower", sn.followers ? fmtNum(sn.followers, 0) : null)}
-      ${tile("Wachstumsrate", sn.growth != null ? fmtNum(sn.growth) + " %" : null)}
-      ${tile("Ø Reichweite Beitrag", sn.reachPost ? fmtNum(Math.round(sn.reachPost), 0) : null)}
-      ${tile("Ø Reichweite Reel", sn.reachReel ? fmtNum(Math.round(sn.reachReel), 0) : null)}
-      ${tile("Ø ER Beitrag", sn.erPost != null ? fmtNum(sn.erPost) + " %" : null)}
-      ${tile("Ø ER Reel", sn.erReel != null ? fmtNum(sn.erReel) + " %" : null)}
-      ${tile("Ø Story-Aufrufe", sn.reachStory ? fmtNum(Math.round(sn.reachStory), 0) : null)}
-      ${tile("Follow-Conversion", sn.conv != null ? fmtNum(sn.conv) + " %" : null)}
-    </div></section>
-    ${sn.strengths.length ? `<div class="label">Stärken</div><section class="card kpi good">${sn.strengths.map(s => `<div class="row" style="padding:5px 0"><span class="spacer">${esc(s.k.n)} <span class="meta">${TYPES[s.t].plural}</span></span><b style="color:var(--good)">${esc(fmtKpi(s.k, s.a))}</b></div>`).join("")}</section>` : ""}
-    ${sn.issues.length ? `<div class="label">Baustellen</div>${sn.issues.map(s => `<section class="card kpi bad"><div class="kpi-top"><span class="kpi-name">${esc(s.k.n)} <span class="meta">${TYPES[s.t].plural}</span></span><span class="kpi-val" style="font-size:1.1rem;color:var(--bad)">${esc(fmtKpi(s.k, s.a))}</span></div><p class="bench" style="margin:2px 0 0">${esc(s.k.b)}</p>${s.k.tips ? `<ul class="tips">${s.k.tips.slice(0, 2).map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}</section>`).join("")}` : ""}
+    ${sn.findings.length ? `<div class="label">Befunde</div>${sn.findings.map(f => `<section class="card kpi ${f.lvl === "info" ? "" : f.lvl}"><div class="kpi-name">${lvlIcon[f.lvl]} ${esc(f.title)}</div><p style="margin:6px 0 0;font-size:.9rem">${esc(f.text)}</p></section>`).join("")}` : ""}
+    ${ks ? `<div class="label">Konto · ${d.days || 90} Tage</div><section class="card"><div class="tiles" style="margin:0">
+      ${tileHTML("Follower", d.followers != null ? fmtNum(d.followers, 0) : null, dl.followers)}
+      ${tileHTML("Netto-Follower", d.net != null ? (d.net > 0 ? "+" : "") + fmtNum(d.net, 0) : null)}
+      ${tileHTML("Aufrufe", d.views != null ? fmtNum(d.views, 0) : null, dl.views)}
+      ${tileHTML("Betrachter", d.reached != null ? fmtNum(d.reached, 0) : null, dl.reached)}
+      ${tileHTML("Nicht-Follower-Anteil", kv.k_nonf != null ? fmtNum(kv.k_nonf, 1) + " %" : null, dl.viewsNF)}
+      ${tileHTML("Aufrufe/Betrachter", kv.k_freq != null ? fmtNum(kv.k_freq, 1) + " ×" : null)}
+      ${tileHTML("Profilaufrufe", d.profileVisits != null ? fmtNum(d.profileVisits, 0) : null)}
+      ${tileHTML("Follow-Conversion", kv.k_conv != null ? fmtNum(kv.k_conv, 1) + " %" : null)}
+      ${tileHTML("Bio-Link-Klickrate", kv.k_link != null ? fmtNum(kv.k_link, 2) + " %" : null)}
+      ${tileHTML("Wachstum/Monat", kv.k_growth != null ? fmtNum(kv.k_growth, 1) + " %" : null)}
+    </div></section>` : ""}
+    ${mixV ? `<section class="card"><h2>Content-Mix</h2><p class="hint" style="margin:0">Aufrufe nach Format</p>${barsHTML(mixV)}
+      ${mixI ? `<p class="hint" style="margin:14px 0 0">Interaktionen nach Format (je 100 Aufrufe)</p>${barsHTML(mixI.map(([l, x], i) => [l, x, `${fmtNum(x, 0)} (${mixV[i][1] ? fmtNum(x / mixV[i][1] * 100, 1) : "–"})`]))}` : ""}</section>` : ""}
+    ${d.female != null || ages.length ? `<section class="card"><h2>Zielgruppe</h2>
+      ${d.female != null ? `<div class="row" style="font-size:.84rem;font-weight:650;margin-top:8px"><span class="spacer">Frauen ${fmtNum(d.female, 1)} %</span><span>Männer ${fmtNum(d.male ?? 100 - d.female, 1)} %</span></div>
+        <div class="progress" style="height:14px;background:var(--accent2)"><i style="width:${d.female}%;background:var(--accent)"></i></div>` : ""}
+      ${ages.length ? `<p class="hint" style="margin:12px 0 0">Altersgruppen</p>${barsHTML(ages.map(([a, p]) => [a, p, fmtNum(p, 1) + " %"]))}` : ""}
+      ${cities.length ? `<p class="hint" style="margin:12px 0 0">Top-Städte</p>${barsHTML(cities.map(([c, p]) => [c, p, fmtNum(p, 1) + " %"]))}` : ""}
+    </section>` : ""}
+    ${ex ? `<section class="card"><h2>Insights-Export</h2><p class="hint" style="margin:0">${esc(ex.range || "")}${ex.days ? ` · ${ex.days} Tage` : ""} · Reels und Beiträge zusammen</p><div class="tiles">
+      ${tileHTML("Veröffentlichte Reels", ex.reels != null ? fmtNum(ex.reels, 0) : null)}${tileHTML("Interaktionen gesamt", fmtNum(exInter(ex), 0))}
+      ${tileHTML("„Gefällt mir“", ex.likes != null ? fmtNum(ex.likes, 0) : null)}${tileHTML("Kommentare", ex.comments != null ? fmtNum(ex.comments, 0) : null)}
+      ${tileHTML("Geteilt", ex.shares != null ? fmtNum(ex.shares, 0) : null)}${tileHTML("Gespeichert", ex.saves != null ? fmtNum(ex.saves, 0) : null)}
+      ${tileHTML("Betrachter", ex.reached != null ? fmtNum(ex.reached, 0) : null)}${tileHTML("Aufrufe von Reels", ex.reelViews != null ? fmtNum(ex.reelViews, 0) : null)}</div></section>` : ""}
+    ${sn.strengths.length ? `<div class="label">Stärken</div><section class="card kpi good">${sn.strengths.map(s => `<div class="row" style="padding:5px 0"><span class="spacer">${esc(s.k.n)} <span class="meta">${AREA_LABEL(s.t)}</span></span><b style="color:var(--good);white-space:nowrap">${esc(fmtKpi(s.k, s.a))}</b></div>`).join("")}</section>` : ""}
+    ${sn.issues.length ? `<div class="label">Baustellen</div>${sn.issues.map(s => `<section class="card kpi bad"><div class="kpi-top"><span class="kpi-name">${esc(s.k.n)} <span class="meta">${AREA_LABEL(s.t)}</span></span><span class="kpi-val" style="font-size:1.1rem;color:var(--bad)">${esc(fmtKpi(s.k, s.a))}</span></div><p class="bench" style="margin:2px 0 0">${esc(s.k.b)}</p>${s.k.tips ? `<ul class="tips">${s.k.tips.slice(0, 2).map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}</section>`).join("")}` : ""}
+    ${ks ? `<details class="card"><summary>Alle Konto-Kennzahlen mit Rechenweg</summary>${[...kpisOf("konto").map(k => [k, ks.d]), ...(ex ? kpisOf("export").map(k => [k, ex]) : [])].map(([k, src]) => evalKpi(k, src) == null ? "" : kpiCard(k, src)).join("")}</details>` : ""}
     ${sn.gaps.length ? `<div class="label">Datenlücken</div><section class="card"><ul class="insights" style="margin:0">${sn.gaps.map(g => `<li>${esc(g)}</li>`).join("")}</ul></section>` : ""}
     ${multi ? channelCompare() : ""}
     <button class="btn block" id="ucopy" style="margin-top:4px">${I.copy} Bestandsaufnahme kopieren</button>`;
+  $("#unew").onclick = openGuide;
   $("#ucopy").onclick = () => copyText(snapshotText(S.active));
   v.querySelectorAll("[data-sw]").forEach(b => b.onclick = () => { S.active = b.dataset.sw; editing = null; save(); render(); toast(`Kanal: ${channel().name}`); });
 }
@@ -814,13 +901,87 @@ function channelCompare() {
     <div class="tblwrap"><table><thead><tr><th>Kanal</th>${rows.map(r => `<th><button class="btn ghost small" data-sw="${r.c.id}" style="padding:0;min-height:0;${r.c.id === S.active ? "color:var(--ink)" : ""}">${esc(r.c.name)}</button></th>`).join("")}</tr></thead><tbody>
       ${line("Score", s => s.score ?? "–")}
       ${line("Follower", s => n(s.followers))}
-      ${line("Wachstumsrate", s => n(s.growth, " %"))}
+      ${line("Wachstum/Monat", s => n(s.growth, " %"))}
       ${line("Ø Reichweite Beitrag", s => n(s.reachPost && Math.round(s.reachPost)))}
       ${line("Ø Reichweite Reel", s => n(s.reachReel && Math.round(s.reachReel)))}
       ${line("Ø ER Beitrag", s => n(s.erPost, " %"))}
       ${line("Ø ER Reel", s => n(s.erReel, " %"))}
+      ${line("Nicht-Follower-Anteil", s => n(s.kv.k_nonf, " %"))}
+      ${line("Frauenanteil", s => n(s.kv.k_female, " %"))}
       ${line("Einträge", s => s.total)}
     </tbody></table></div>`;
+}
+
+/* ---------- Bestandsaufnahme-Assistent ---------- */
+let bestandPages = [];
+function openGuide() {
+  openSheet(`<h2>Bestandsaufnahme per Screenshots</h2>
+    <p class="hint">So geht's: In der Instagram-App die folgenden Seiten aufrufen und jeweils einen Screenshot machen. Danach alle Screenshots auf einmal auswählen – die Reihenfolge ist egal, die App erkennt jede Seite selbst.</p>
+    <div class="card" style="padding:6px 14px">${Bestand.CHECKLIST.map((c, i) => `<div style="padding:10px 0;border-bottom:1px solid var(--line)">
+      <div class="row" style="align-items:flex-start;gap:10px"><span class="badge" style="margin:0;min-width:24px;text-align:center">${i + 1}</span>
+      <div><b>${esc(c.title)}</b>${c.optional ? ' <span class="meta">optional</span>' : ""}<div class="hint" style="margin:3px 0 0">${esc(c.where)}</div><div class="meta">Liefert: ${esc(c.what)}</div></div></div></div>`).join("")}</div>
+    <div class="card"><b>Tipps</b><ul class="insights">
+      <li>„Dein Dashboard“ findest du im Profil direkt unter der Bio.</li>
+      <li>Zeitraum in „Leistung“ und „Zielgruppe“ auf <b>90 Tage</b> stellen, bei „Inhalte“ auf <b>1 Jahr</b>.</li>
+      <li>Kacheln, die am Rand abgeschnitten sind, nach links wischen und noch einen Screenshot machen.</li>
+      <li>Fehlt etwas, sagt die App nach dem Einlesen genau, welcher Screenshot noch gebraucht wird.</li>
+      <li>Die Bilder werden nur auf diesem Gerät ausgewertet und nicht hochgeladen.</li></ul></div>
+    <button class="btn grad block" id="gpick">${I.cam} Screenshots auswählen (bis zu 40)</button>`, b => {
+    b.querySelector("#gpick").onclick = () => { bestandPages = []; startBestandOcr(); };
+  });
+}
+async function runBestand(files) {
+  if (!files.length) return;
+  openSheet(`<h2>Screenshots werden ausgewertet</h2><div class="spinner"></div><p class="hint" style="text-align:center" id="bstat">Texterkennung wird gestartet …</p>
+    <p class="note" style="text-align:center">${files.length} Bilder · das kann etwa ${Math.max(1, Math.round(files.length * 3 / 60))} Minute(n) dauern. Die Bilder bleiben auf dem Gerät.</p>`);
+  try {
+    const pages = await OCR.recognize(files, p => { const el = $("#bstat"); if (el) el.textContent = `${p.status.startsWith("Screenshot") ? p.status : "Erkennung vorbereiten"} …`; });
+    bestandPages = bestandPages.concat(pages);
+    showBestandResult(Bestand.analyze(bestandPages));
+  } catch (err) {
+    openSheet(`<h2>Das hat nicht geklappt</h2><p class="hint">${esc(err.message || err)}</p><button class="btn block" onclick="closeSheet()">Schließen</button>`);
+  }
+}
+function showBestandResult(r) {
+  const acc = r.account, have = KONTO_FIELDS.filter(([k]) => acc[k] != null);
+  const missing = Bestand.CHECKLIST.filter(c => !c.need(r));
+  const unknown = r.kinds.filter(k => k === "unbekannt").length;
+  openSheet(`<h2>Ergebnis prüfen</h2>
+    <p class="hint">${bestandPages.length} Screenshots gelesen${unknown ? `, ${unknown} davon ohne verwertbare Daten (z. B. Profilraster)` : ""}. Bitte die Werte kurz mit den Screenshots vergleichen.</p>
+    <div class="card" style="padding:6px 14px">${Bestand.CHECKLIST.map(c => { const ok = c.need(r); return `<div class="row" style="padding:7px 0;align-items:flex-start;gap:10px"><span>${ok ? "✅" : c.optional ? "⚪️" : "❌"}</span><div><b style="font-size:.9rem">${esc(c.title)}</b>${ok ? "" : `<div class="hint" style="margin:2px 0 0">${c.optional ? "Optional – " : "Fehlt – "}${esc(c.where)}</div>`}</div></div>`; }).join("")}</div>
+    ${missing.some(c => !c.optional) ? `<button class="btn block" id="bmore" style="margin-bottom:12px">${I.cam} Fehlende Screenshots ergänzen</button>` : ""}
+    ${have.length ? `<div class="label">Konto · ${acc.days} Tage</div><div class="card"><div class="grid">${KONTO_FIELDS.filter(([k]) => acc[k] != null || ["followers", "views", "reached", "profileVisits"].includes(k)).map(([k, l]) => `<label class="field"><span>${esc(l)}</span><input type="number" inputmode="decimal" step="any" data-ak="${k}" value="${acc[k] ?? ""}"></label>`).join("")}</div>
+      ${Object.keys(r.age).length ? `<p class="hint" style="margin:10px 0 0">Alter: ${Object.entries(r.age).map(([a, p]) => `${a}: ${fmtNum(p, 1)} %`).join(" · ")}</p>` : ""}
+      ${r.bioLink ? `<p class="hint" style="margin:6px 0 0">Bio-Link: ${esc(r.bioLink)}</p>` : ""}</div>` : ""}
+    ${r.ex ? `<div class="label">Insights-Export · ${esc(r.ex.range || "")}</div><div class="card"><div class="grid">${[["days", "Tage"], ["followers", "Follower"], ["reached", "Betrachter"], ["reelViews", "Aufrufe von Reels"], ["likes", "„Gefällt mir“"], ["comments", "Kommentare"], ["reposts", "Reposts"], ["shares", "Geteilt"], ["saves", "Gespeichert"], ["reels", "Reels"]].map(([k, l]) => `<label class="field"><span>${l}</span><input type="number" inputmode="decimal" step="any" data-ek="${k}" value="${r.ex[k] ?? ""}"></label>`).join("")}</div></div>` : ""}
+    ${r.posts.length ? `<div class="label">${r.posts.length} Beiträge erkannt</div><div class="card" style="padding:4px 14px">${r.posts.map((p, i) => `<label class="ocr-row" style="grid-template-columns:28px minmax(0,1fr) auto"><input type="checkbox" data-pi="${i}" checked><span class="lbl">${esc(p.name)}<small>${p.date ? dDE(p.date) : "Datum unklar"} · ${["reach", "views", "likes", "comments", "shares", "saves", "follows"].filter(k => p.d[k] != null).length}/7 Werte${Object.entries(p.sure || {}).some(([, v]) => !v) ? " · teils unsicher" : ""}</small></span><span class="meta" style="text-align:right">${p.d.reach != null ? fmtNum(p.d.reach, 0) + " erreicht" : p.d.likes != null ? fmtNum(p.d.likes, 0) + " ♥" : ""}</span></label>`).join("")}</div>
+      <p class="note">Beiträge werden in den Verlauf (Bereich „Beitrag“) übernommen und lassen sich dort einzeln prüfen und korrigieren.</p>` : ""}
+    <div class="row"><button class="btn primary spacer" id="bok">Bestandsaufnahme übernehmen</button><button class="btn" id="bno">Abbrechen</button></div>`, b => {
+    if (b.querySelector("#bmore")) b.querySelector("#bmore").onclick = startBestandOcr;
+    b.querySelector("#bno").onclick = closeSheet;
+    b.querySelector("#bok").onclick = () => {
+      const d = { days: acc.days }, ex = r.ex ? { ...r.ex } : null;
+      b.querySelectorAll("[data-ak]").forEach(i => { const v = parseFloat(i.value.replace(",", ".")); if (isFinite(v)) d[i.dataset.ak] = v; });
+      if (ex) b.querySelectorAll("[data-ek]").forEach(i => { const v = parseFloat(i.value.replace(",", ".")); if (isFinite(v)) ex[i.dataset.ek] = v; else delete ex[i.dataset.ek]; });
+      const date = today(), list = CH().konto;
+      const prev = list.find(x => x.date === date);
+      const snap = { id: prev?.id || newId(), date, d: { ...(prev?.d || {}), ...d }, delta: { ...(prev?.delta || {}), ...r.delta }, age: Object.keys(r.age).length ? r.age : prev?.age || {}, cities: Object.keys(r.cities).length ? r.cities : prev?.cities || {}, bioLink: r.bioLink || prev?.bioLink || null, ex: ex || prev?.ex || null };
+      if (prev) list[list.indexOf(prev)] = snap; else list.push(snap);
+      let n = 0;
+      b.querySelectorAll("[data-pi]").forEach(cb => {
+        if (!cb.checked) return;
+        const p = r.posts[+cb.dataset.pi], dd = {};
+        ["reach", "views", "likes", "comments", "shares", "saves", "follows"].forEach(k => { if (p.d[k] != null) dd[k] = p.d[k]; });
+        if (snap.d.followers) dd.followers = snap.d.followers;
+        const pd = p.date || date;
+        const ex2 = CH().hist.beitrag.find(e => e.date === pd && e.name.toLowerCase() === p.name.toLowerCase());
+        if (ex2) Object.assign(ex2.d, dd); else CH().hist.beitrag.push({ id: newId(), name: p.name, date: pd, d: dd, src: "screenshot" });
+        n++;
+      });
+      bestandPages = []; save(); closeSheet(); go("ueberblick");
+      toast(`Bestandsaufnahme gespeichert${n ? ` · ${n} Beiträge im Verlauf` : ""}`);
+    };
+  });
 }
 
 /* ================= Kein Zoom, App-Gefühl ================= */

@@ -5,7 +5,8 @@ Lern-App für angehende Social Media Manager: Zahlen aus Instagram Insights eint
 **Live:** https://insta-kpi.micana.de
 
 ## Funktionen
-- **Überblick:** Bestandsaufnahme je Kanal mit Score je Bereich, Steckbrief, Stärken, Baustellen, Datenlücken und Kanalvergleich
+- **Bestandsaufnahme per Screenshots:** Assistent mit Anleitung (Profil, Dashboard „Leistung“, „Zielgruppe“, „Inhalte“ je Sortierung, Insights-Export). Die App erkennt jede Seite selbst, prüft auf Vollständigkeit und übersetzt die Zahlen in Befunde
+- **Überblick:** Score je Bereich, Befunde, Konto-Kennzahlen, Content-Mix, Zielgruppe, Stärken, Baustellen, Datenlücken und Kanalvergleich
 - **Erfassen:** Beitrag, Reel, Story und Profil; über 25 Kennzahlen mit Rechenweg, Richtwert, Erklärung und Handlungsempfehlungen
 - **Screenshot einlesen:** Texterkennung (Tesseract.js) direkt im Browser, Deutsch und Englisch, Hell- und Dunkelmodus; Werte werden vor der Übernahme geprüft
 - **Verlauf:** Vergleichstabelle mit Bestwerten, Durchschnitt und Trend sowie ein Format-Vergleich (Einzelbild, Karussell, Reel, Story)
@@ -26,7 +27,8 @@ Lern-App für angehende Social Media Manager: Zahlen aus Instagram Insights eint
 | `index.html` | App-Gerüst |
 | `style.css` | Gestaltung (hell/dunkel) |
 | `kpis.js` | Felder, Kennzahlen, Richtwerte, Empfehlungen |
-| `ocr.js` | Screenshot-Import: Vorverarbeitung, Texterkennung, Parser |
+| `ocr.js` | Texterkennung, Vorverarbeitung, Parser für einzelne Insights |
+| `bestand.js` | Parser für Dashboard-, Zielgruppen-, Profil-, Inhalte- und Export-Screenshots (positionsbasiert) |
 | `app.js` | Ansichten, Kanäle, Verlauf, Ziele, Report, Deals, Bestandsaufnahme |
 | `sw.js` | Offline-Cache |
 
