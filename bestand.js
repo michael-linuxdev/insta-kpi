@@ -373,5 +373,12 @@ const Bestand = (() => {
     { id: "export", title: "Insights-Export (optional)", where: "Dashboard → oben rechts „Teilen“-Symbol → Zusammenfassung als Bild sichern, oder Export aus der Edits-App.", need: r => !!r.ex, what: "Summe aller Interaktionen und Anzahl Reels im Zeitraum", optional: true },
     { id: "listen", title: "Dashboard → Inhalte (je Sortierung)", where: "Tab „Inhalte“, „Alle Inhalte“, Zeitraum „1 Jahr“. Für jede Sortierung oben einen Screenshot: Aufrufe, Betrachter, Neue Follower, „Gefällt mir“, Kommentare, Geteilte Inhalte, Gespeicherte Inhalte.", need: r => ["views", "reach", "follows", "likes", "comments", "shares", "saves"].every(k => r.lists.includes(k)), what: "Kennzahlen der Top-Beiträge" },
   ];
-  return { analyze, layout, classify, CHECKLIST };
+  /* Schnell-Check: 4 Screenshots für die wichtigsten Befunde */
+  const QUICK = [
+    { id: "q_profil", title: "Profil", where: "Eigenes Profil öffnen, ganz nach oben scrollen.", need: r => r.account.posts != null && r.account.following != null, what: "Beiträge, Follower, Gefolgt, Bio-Link" },
+    { id: "q_leistung", title: "Dashboard → Leistung", where: "Im Profil auf „Dein Dashboard“ tippen → Tab „Leistung“ → Zeitraum „90 Tage“. Screenshot vom oberen Teil.", need: r => r.account.views != null && r.account.reached != null, what: "Aufrufe, Betrachter und Aufrufe nach Beiträgen, Stories, Reels" },
+    { id: "q_zielgruppe", title: "Dashboard → Zielgruppe", where: "Tab „Zielgruppe“ → Zeitraum „90 Tage“. Etwas nach unten scrollen, sodass Follower-Kacheln, Geschlecht und Altersgruppen zu sehen sind.", need: r => r.account.followers != null && r.account.female != null, what: "Follower-Wachstum, Frauen-/Männeranteil, Alter" },
+    { id: "q_export", title: "Insights-Zusammenfassung", where: "Im Dashboard oben rechts auf das Teilen-Symbol tippen und die Zusammenfassung als Bild sichern (alternativ der Export aus der Edits-App).", need: r => !!r.ex, what: "Alle Interaktionen und Anzahl der Reels im Zeitraum" },
+  ];
+  return { analyze, layout, classify, CHECKLIST, QUICK };
 })();

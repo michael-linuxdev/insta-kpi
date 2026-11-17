@@ -747,12 +747,13 @@ function snapshot(chId) {
     if (all.length && all[all.length - 1].date > out.last) out.last = all[all.length - 1].date;
     out.total += all.length;
     for (const k of kpisOf(t)) { const a = avg(rec.map(e => evalKpi(k, e.d)).filter(v => v != null)); if (a != null) rate(t, k, a); }
-    if (!all.length && t !== "profil" && !(t === "reel" && ks?.ex?.reels === 0)) out.gaps.push(`Keine ${TYPES[t].plural}-Daten – mindestens 3 erfassen für eine Einschätzung.`);
+    if (!all.length && t !== "profil" && !ks) out.gaps.push(`Keine ${TYPES[t].plural}-Daten – mindestens 3 erfassen für eine Einschätzung.`);
     else if (all.length && all.length < 3) out.gaps.push(`Erst ${all.length} ${all.length === 1 ? TYPES[t].label : TYPES[t].plural} – ab 3 Einträgen wird das Bild verlässlicher.`);
   }
   for (const a of Object.values(out.areas)) { const rs = a.kpis.filter(x => x.r).map(x => SCORE[x.r]); a.score = rs.length ? Math.round(avg(rs)) : null; }
   out.score = scores.length ? Math.round(avg(scores)) : null;
-  if (!ks) out.gaps.unshift("Noch keine Konto-Bestandsaufnahme – Dashboard-Screenshots einlesen.");
+  if (!ks) out.gaps.unshift("Noch keine Konto-Bestandsaufnahme – Schnell-Check mit 4 Screenshots machen.");
+  else if (!data.hist.beitrag.length) out.gaps.push("Einzelne Beiträge sind noch nicht ausgewertet – optional über die vollständige Bestandsaufnahme (Inhalte-Listen) oder unter „Erfassen“.");
   if (!Object.keys(data.goals).some(id => KPI_BY_ID[id]) && out.total) out.gaps.push("Noch keine Ziele gesetzt.");
   if (out.last) { const age = Math.floor((new Date() - new Date(out.last)) / 864e5); if (age > 30) out.gaps.push(`Letzte Daten sind ${age} Tage alt – aktualisieren.`); }
   const prof = sorted("profil"), post = sorted("beitrag");
@@ -834,7 +835,7 @@ function renderUeberblick(v) {
   if (!sn.total) {
     v.innerHTML = `<div class="card empty-state"><div class="big">🔎</div><h2>Bestandsaufnahme für „${esc(channel().name)}“</h2>
       <p>Screenshots aus dem Instagram-Dashboard einlesen – die App ermittelt Kennzahlen, Zielgruppe, Stärken und Baustellen des Kanals.</p>
-      <button class="btn grad block" id="u0">${I.cam} Bestandsaufnahme starten</button>
+      <button class="btn grad block" id="u0">${I.cam} Schnell-Check starten · 4 Screenshots</button>
       <div class="row" style="justify-content:center;margin-top:10px"><button class="btn ghost" id="u1">Zahlen von Hand erfassen</button><button class="btn ghost" id="u2">Beispieldaten</button></div></div>`;
     $("#u0").onclick = openGuide;
     $("#u1").onclick = () => go("erfassen");
@@ -854,7 +855,7 @@ function renderUeberblick(v) {
       <div class="row"><div class="spacer"><h2>Bestandsaufnahme</h2><p class="hint" style="margin:0">Stand ${dDE(sn.last)}${ks ? ` · Konto ${d.days || 90} Tage` : ""}</p></div>
         <div style="text-align:right"><div class="kpi-val" style="font-size:2rem">${sn.score ?? "–"}<span style="font-size:.9rem;color:var(--muted)">/100</span></div>${cls ? `<span class="badge ${cls}">${lbl}</span>` : ""}</div></div>
       <div class="bars" style="margin-top:14px">${Object.entries(sn.areas).filter(([, a]) => a.score != null || a.n).map(([t, a]) => `<div class="bar"><span>${AREA_LABEL(t)}${t !== "konto" ? ` <span class="meta">(${a.n})</span>` : ""}</span><span class="track"><span class="fill" style="display:block;width:${a.score ?? 0}%;${a.score == null ? "" : a.score < 40 ? "background:var(--bad)" : a.score < 60 ? "background:var(--ok)" : ""}"></span></span><span class="num">${a.score ?? "–"}</span></div>`).join("")}</div>
-      <button class="btn grad block" id="unew" style="margin-top:14px">${I.cam} ${ks ? "Neue Bestandsaufnahme / ergänzen" : "Dashboard-Screenshots einlesen"}</button>
+      <button class="btn grad block" id="unew" style="margin-top:14px">${I.cam} ${ks ? "Neue Bestandsaufnahme" : "Schnell-Check · 4 Screenshots"}</button>
       <details><summary>Wie entsteht der Score?</summary><p>Jede Kennzahl mit Richtwert wird bewertet: stark = 100, solide = 60, ausbaufähig = 20 Punkte. Beiträge, Reels und Stories fließen mit dem Durchschnitt der letzten ${RECENT} Einträge ein, das Konto mit der letzten Bestandsaufnahme. Der Score ist eine schnelle Ampel – entscheidend sind die Befunde darunter.</p></details>
     </section>
     ${sn.findings.length ? `<div class="label">Befunde</div>${sn.findings.map(f => `<section class="card kpi ${f.lvl === "info" ? "" : f.lvl}"><div class="kpi-name">${lvlIcon[f.lvl]} ${esc(f.title)}</div><p style="margin:6px 0 0;font-size:.9rem">${esc(f.text)}</p></section>`).join("")}` : ""}
@@ -914,19 +915,28 @@ function channelCompare() {
 
 /* ---------- Bestandsaufnahme-Assistent ---------- */
 let bestandPages = [];
+const bestandMode = () => S.ui.bestandMode === "voll" ? "voll" : "schnell";
+function checkSteps(c, i) {
+  return `<div style="padding:10px 0;border-bottom:1px solid var(--line)">
+    <div class="row" style="align-items:flex-start;gap:10px"><span class="badge" style="margin:0;min-width:24px;text-align:center">${i + 1}</span>
+    <div><b>${esc(c.title)}</b>${c.optional ? ' <span class="meta">optional</span>' : ""}<div class="hint" style="margin:3px 0 0">${esc(c.where)}</div><div class="meta">Liefert: ${esc(c.what)}</div></div></div></div>`;
+}
 function openGuide() {
+  const mode = bestandMode(), list = mode === "schnell" ? Bestand.QUICK : Bestand.CHECKLIST;
   openSheet(`<h2>Bestandsaufnahme per Screenshots</h2>
-    <p class="hint">So geht's: In der Instagram-App die folgenden Seiten aufrufen und jeweils einen Screenshot machen. Danach alle Screenshots auf einmal auswählen – die Reihenfolge ist egal, die App erkennt jede Seite selbst.</p>
-    <div class="card" style="padding:6px 14px">${Bestand.CHECKLIST.map((c, i) => `<div style="padding:10px 0;border-bottom:1px solid var(--line)">
-      <div class="row" style="align-items:flex-start;gap:10px"><span class="badge" style="margin:0;min-width:24px;text-align:center">${i + 1}</span>
-      <div><b>${esc(c.title)}</b>${c.optional ? ' <span class="meta">optional</span>' : ""}<div class="hint" style="margin:3px 0 0">${esc(c.where)}</div><div class="meta">Liefert: ${esc(c.what)}</div></div></div></div>`).join("")}</div>
-    <div class="card"><b>Tipps</b><ul class="insights">
-      <li>„Dein Dashboard“ findest du im Profil direkt unter der Bio.</li>
-      <li>Zeitraum in „Leistung“ und „Zielgruppe“ auf <b>90 Tage</b> stellen, bei „Inhalte“ auf <b>1 Jahr</b>.</li>
-      <li>Kacheln, die am Rand abgeschnitten sind, nach links wischen und noch einen Screenshot machen.</li>
-      <li>Fehlt etwas, sagt die App nach dem Einlesen genau, welcher Screenshot noch gebraucht wird.</li>
-      <li>Die Bilder werden nur auf diesem Gerät ausgewertet und nicht hochgeladen.</li></ul></div>
-    <button class="btn grad block" id="gpick">${I.cam} Screenshots auswählen (bis zu 40)</button>`, b => {
+    ${seg([["schnell", "Schnell-Check · 4 Bilder"], ["voll", "Vollständig"]], mode, "bm")}
+    <p class="hint">${mode === "schnell"
+      ? "Vier Screenshots reichen für die wichtigsten Befunde: Reichweite, Reels, Zielgruppe, Wachstum und Interaktionen."
+      : "Für die vollständige Analyse inklusive einzelner Beiträge, Nicht-Follower-Anteil und Bio-Link-Klicks. Dauert etwa 10 Minuten."}
+      Danach alle Bilder auf einmal auswählen – die Reihenfolge ist egal.</p>
+    <div class="card" style="padding:6px 14px">${list.map(checkSteps).join("")}</div>
+    <details class="card"><summary>Tipps</summary><ul class="insights">
+      <li>„Dein Dashboard“ steht im eigenen Profil direkt unter der Bio.</li>
+      <li>Zeitraum überall auf <b>90 Tage</b> stellen${mode === "voll" ? ", bei „Inhalte“ auf <b>1 Jahr</b>" : ""}.</li>
+      <li>Fehlt etwas, sagt die App nach dem Einlesen genau, welches Bild noch gebraucht wird.</li>
+      <li>Die Bilder werden nur auf diesem Gerät ausgewertet.</li></ul></details>
+    <button class="btn grad block" id="gpick">${I.cam} ${mode === "schnell" ? "4 Screenshots auswählen" : "Screenshots auswählen (bis zu 40)"}</button>`, b => {
+    b.querySelectorAll("[data-bm]").forEach(x => x.onclick = () => { S.ui.bestandMode = x.dataset.bm; save(); openGuide(); });
     b.querySelector("#gpick").onclick = () => { bestandPages = []; startBestandOcr(); };
   });
 }
@@ -944,12 +954,15 @@ async function runBestand(files) {
 }
 function showBestandResult(r) {
   const acc = r.account, have = KONTO_FIELDS.filter(([k]) => acc[k] != null);
-  const missing = Bestand.CHECKLIST.filter(c => !c.need(r));
+  const main = bestandMode() === "schnell" ? Bestand.QUICK : Bestand.CHECKLIST;
+  const missing = main.filter(c => !c.need(r));
+  const deeper = bestandMode() === "schnell" ? Bestand.CHECKLIST.filter(c => !c.need(r) && c.id !== "export" && c.id !== "profil") : [];
   const unknown = r.kinds.filter(k => k === "unbekannt").length;
   openSheet(`<h2>Ergebnis prüfen</h2>
     <p class="hint">${bestandPages.length} Screenshots gelesen${unknown ? `, ${unknown} davon ohne verwertbare Daten (z. B. Profilraster)` : ""}. Bitte die Werte kurz mit den Screenshots vergleichen.</p>
-    <div class="card" style="padding:6px 14px">${Bestand.CHECKLIST.map(c => { const ok = c.need(r); return `<div class="row" style="padding:7px 0;align-items:flex-start;gap:10px"><span>${ok ? "✅" : c.optional ? "⚪️" : "❌"}</span><div><b style="font-size:.9rem">${esc(c.title)}</b>${ok ? "" : `<div class="hint" style="margin:2px 0 0">${c.optional ? "Optional – " : "Fehlt – "}${esc(c.where)}</div>`}</div></div>`; }).join("")}</div>
+    <div class="card" style="padding:6px 14px">${main.map(c => { const ok = c.need(r); return `<div class="row" style="padding:7px 0;align-items:flex-start;gap:10px"><span>${ok ? "✅" : c.optional ? "⚪️" : "❌"}</span><div><b style="font-size:.9rem">${esc(c.title)}</b>${ok ? "" : `<div class="hint" style="margin:2px 0 0">${c.optional ? "Optional – " : "Fehlt – "}${esc(c.where)}</div>`}</div></div>`; }).join("")}</div>
     ${missing.some(c => !c.optional) ? `<button class="btn block" id="bmore" style="margin-bottom:12px">${I.cam} Fehlende Screenshots ergänzen</button>` : ""}
+    ${deeper.length ? `<details class="card"><summary>Für mehr Tiefe (optional)</summary><p class="hint">Mit diesen Bildern kommen Nicht-Follower-Anteil, Bio-Link-Klicks und die Auswertung einzelner Beiträge dazu.</p>${deeper.map(c => `<div style="padding:6px 0"><b style="font-size:.88rem">${esc(c.title)}</b><div class="hint" style="margin:2px 0 0">${esc(c.where)}</div></div>`).join("")}<button class="btn small" id="bmore2" style="margin-top:6px">${I.cam} Bilder ergänzen</button></details>` : ""}
     ${have.length ? `<div class="label">Konto · ${acc.days} Tage</div><div class="card"><div class="grid">${KONTO_FIELDS.filter(([k]) => acc[k] != null || ["followers", "views", "reached", "profileVisits"].includes(k)).map(([k, l]) => `<label class="field"><span>${esc(l)}</span><input type="number" inputmode="decimal" step="any" data-ak="${k}" value="${acc[k] ?? ""}"></label>`).join("")}</div>
       ${Object.keys(r.age).length ? `<p class="hint" style="margin:10px 0 0">Alter: ${Object.entries(r.age).map(([a, p]) => `${a}: ${fmtNum(p, 1)} %`).join(" · ")}</p>` : ""}
       ${r.bioLink ? `<p class="hint" style="margin:6px 0 0">Bio-Link: ${esc(r.bioLink)}</p>` : ""}</div>` : ""}
@@ -958,6 +971,7 @@ function showBestandResult(r) {
       <p class="note">Beiträge werden in den Verlauf (Bereich „Beitrag“) übernommen und lassen sich dort einzeln prüfen und korrigieren.</p>` : ""}
     <div class="row"><button class="btn primary spacer" id="bok">Bestandsaufnahme übernehmen</button><button class="btn" id="bno">Abbrechen</button></div>`, b => {
     if (b.querySelector("#bmore")) b.querySelector("#bmore").onclick = startBestandOcr;
+    if (b.querySelector("#bmore2")) b.querySelector("#bmore2").onclick = startBestandOcr;
     b.querySelector("#bno").onclick = closeSheet;
     b.querySelector("#bok").onclick = () => {
       const d = { days: acc.days }, ex = r.ex ? { ...r.ex } : null;

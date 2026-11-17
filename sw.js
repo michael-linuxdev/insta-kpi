@@ -1,5 +1,5 @@
 /* Offline-Cache: App-Dateien sofort, Texterkennung (CDN) bei erster Nutzung */
-const VERSION = "insta-kpi-v2";
+const VERSION = "insta-kpi-v3";
 const SHELL = ["./", "index.html", "style.css", "kpis.js", "ocr.js", "bestand.js", "app.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
